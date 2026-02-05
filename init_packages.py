@@ -10,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 from collections import defaultdict
+import yaml
 
 
 def download_package_from_git(git_url, tag, dest_folder, category=None):
@@ -238,34 +239,47 @@ def topological_sort(packages_data):
 
 def load_manifest(manifest_file_path=None):
     """
-    Load package.manifest.json file
+    Load package manifest file (YAML or JSON format)
     
     Args:
-        manifest_file_path: Optional path to manifest file. If not provided, uses default "package.manifest.json"
+        manifest_file_path: Optional path to manifest file. If not provided, tries "package.manifest.yaml" then "package.manifest.json"
     
     Returns:
         dict: Manifest data or None if failed
     """
     if not manifest_file_path:
-        manifest_file_path = "package.manifest.json"
-    
-    manifest_path = Path(manifest_file_path)
-    
-    if not manifest_path.exists():
-        error_msg = f"✗ Error: package.manifest.json not found at {manifest_path}"
-        print(error_msg)
-        sys.exit(1)
+        # Try YAML first, then fall back to JSON for backward compatibility
+        yaml_path = Path("package.manifest.yaml")
+        json_path = Path("package.manifest.json")
+        
+        if yaml_path.exists():
+            manifest_path = yaml_path
+        elif json_path.exists():
+            manifest_path = json_path
+        else:
+            error_msg = "✗ Error: package.manifest.yaml or package.manifest.json not found"
+            print(error_msg)
+            sys.exit(1)
+    else:
+        manifest_path = Path(manifest_file_path)
+        if not manifest_path.exists():
+            error_msg = f"✗ Error: Manifest file not found at {manifest_path}"
+            print(error_msg)
+            sys.exit(1)
     
     try:
         with open(manifest_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            if manifest_path.suffix.lower() in ['.yaml', '.yml']:
+                return yaml.safe_load(f)
+            else:
+                return json.load(f)
     except Exception as e:
-        error_msg = f"✗ Error: Failed to read package.manifest.json: {e}"
+        error_msg = f"✗ Error: Failed to read manifest file: {e}"
         print(error_msg)
         sys.exit(1)
 
 
-def generate_package_lock(install_order, packages_data, packages_src_folder, packages_output_folder, packages_build_folder):
+def generate_package_lock(install_order, packages_data, packages_src_folder, packages_install_folder, packages_build_folder):
     """
     Generate package.lock.json with installation order and package details
     
@@ -273,7 +287,7 @@ def generate_package_lock(install_order, packages_data, packages_src_folder, pac
         install_order: List of package names in installation order
         packages_data: Dict mapping package name to package info
         packages_src_folder: Source folder path
-        packages_output_folder: Output folder path
+        packages_install_folder: Output folder path
         packages_build_folder: Build folder path
         
     Returns:
@@ -282,7 +296,7 @@ def generate_package_lock(install_order, packages_data, packages_src_folder, pac
     lock_data = {
         "generated_at": subprocess.run(['date', '/T'], capture_output=True, text=True, shell=True).stdout.strip() if os.name == 'nt' else subprocess.run(['date'], capture_output=True, text=True).stdout.strip(),
         "packages_src_folder": str(Path(packages_src_folder).resolve()),
-        "packages_output_folder": str(Path(packages_output_folder).resolve()),
+        "packages_install_folder": str(Path(packages_install_folder).resolve()),
         "packages_build_folder": str(Path(packages_build_folder).resolve()),
         "install_order": [],
         "packages": {}
@@ -295,7 +309,7 @@ def generate_package_lock(install_order, packages_data, packages_src_folder, pac
         folder_name = pkg_info['folder_name']
         
         # Generate environment variable names from package name (without tag)
-        # e.g., "ArieoEngine-BuildEnv" -> "ARIEO_PACKAGE_BUILDENV_OUTPUT_FOLDER" and "ARIEO_PACKAGE_BUILDENV_SOURCE_FOLDER"
+        # e.g., "ArieoEngine-BuildEnv" -> "ARIEO_PACKAGE_BUILDENV_INSTALL_FOLDER" and "ARIEO_PACKAGE_BUILDENV_SOURCE_FOLDER"
         base_env_var_name = 'ARIEO_PACKAGE_' + pkg_name.upper().replace('-', '_').replace('ARIEOENGINE_', '')
         
         package_entry = {
@@ -305,12 +319,12 @@ def generate_package_lock(install_order, packages_data, packages_src_folder, pac
             "git_url": pkg_info['git_url'],
             "tag": pkg_info['tag'],
             "source_folder": str(pkg_info['path'].resolve()),
-            "output_folder": str((Path(packages_output_folder).resolve() / pkg_info['folder_name'])),
+            "install_folder": str((Path(packages_install_folder).resolve() / pkg_info['folder_name'])),
             "environment_variables": [
                 {
                     "type": "public",
-                    "name": base_env_var_name + '_OUTPUT_FOLDER',
-                    "value": str((Path(packages_output_folder).resolve() / pkg_info['folder_name']))
+                    "name": base_env_var_name + '_INSTALL_FOLDER',
+                    "value": str((Path(packages_install_folder).resolve() / pkg_info['folder_name']))
                 },
                 {
                     "type": "private",
@@ -344,10 +358,10 @@ def generate_package_lock(install_order, packages_data, packages_src_folder, pac
         lock_data['packages'][pkg_name] = package_entry
     
     # Write lock file
-    lock_file_path = Path(packages_output_folder) / "package.lock.json"
+    lock_file_path = Path(packages_install_folder) / "package.lock.json"
     try:
         # Create output folder if it doesn't exist
-        Path(packages_output_folder).mkdir(parents=True, exist_ok=True)
+        Path(packages_install_folder).mkdir(parents=True, exist_ok=True)
         
         with open(lock_file_path, 'w', encoding='utf-8') as f:
             json.dump(lock_data, f, indent=4, ensure_ascii=False)
@@ -369,7 +383,7 @@ def init_all_packages(manifest_file_path=None):
     manifest = load_manifest(manifest_file_path)
     
     packages_src_folder = manifest.get('packages_src_folder', './_packages/src')
-    packages_output_folder = manifest.get('packages_output_folder', './_packages/published')
+    packages_install_folder = manifest.get('packages_install_folder', './_packages/published')
     packages_build_folder = manifest.get('packages_build_folder', './_build')
     packages_dict = manifest.get('packages', {})
     
@@ -432,7 +446,7 @@ def init_all_packages(manifest_file_path=None):
     print(f"{'='*60}")
     
     # Generate lock file with installation details
-    lock_file_path = generate_package_lock(install_order, packages_data, packages_src_folder, packages_output_folder, packages_build_folder)
+    lock_file_path = generate_package_lock(install_order, packages_data, packages_src_folder, packages_install_folder, packages_build_folder)
     
     # Display installation order
     print(f"\nBuild order:")

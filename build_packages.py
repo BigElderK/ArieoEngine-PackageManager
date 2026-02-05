@@ -12,6 +12,7 @@ import subprocess
 import sys
 from itertools import product
 from pathlib import Path
+import yaml
 
 
 def install_package_from_src_folder(src_folder, output_folder=None, env_vars_map=None):
@@ -201,7 +202,21 @@ def build_all_packages(lock_file_path=None, manifest_file_path=None, package_fil
     if not lock_file_path:
         # Try to load from specified or default manifest file
         if not manifest_file_path:
-            manifest_file_path = "package.manifest.json"
+            # Try YAML first, then fall back to JSON for backward compatibility
+            yaml_path = Path("package.manifest.yaml")
+            json_path = Path("package.manifest.json")
+            
+            if yaml_path.exists():
+                manifest_file_path = "package.manifest.yaml"
+            elif json_path.exists():
+                manifest_file_path = "package.manifest.json"
+            else:
+                error_msg = "✗ Error: package.manifest.yaml or package.manifest.json not found"
+                print(error_msg)
+                print("\nPlease specify the manifest file using --manifest option or ensure")
+                print("package.manifest.yaml (or .json) exists in the current directory.")
+                print("\nExample: python build_packages.py --manifest=path/to/package.manifest.yaml")
+                sys.exit(1)
         
         manifest_path = Path(manifest_file_path)
         
@@ -210,16 +225,19 @@ def build_all_packages(lock_file_path=None, manifest_file_path=None, package_fil
             error_msg = f"✗ Error: Manifest file not found at {manifest_path.resolve()}"
             print(error_msg)
             print("\nPlease specify the manifest file using --manifest option or ensure")
-            print("package.manifest.json exists in the current directory.")
-            print("\nExample: python build_packages.py --manifest=path/to/package.manifest.json")
+            print("the manifest file exists in the current directory.")
+            print("\nExample: python build_packages.py --manifest=path/to/package.manifest.yaml")
             sys.exit(1)
         
         # Load manifest to get lock file location
         try:
             with open(manifest_path, 'r', encoding='utf-8') as f:
-                manifest = json.load(f)
-            packages_output_folder = manifest.get('packages_output_folder', './_packages/published')
-            lock_file_path = Path(packages_output_folder) / "package.lock.json"
+                if manifest_path.suffix.lower() in ['.yaml', '.yml']:
+                    manifest = yaml.safe_load(f)
+                else:
+                    manifest = json.load(f)
+            packages_install_folder = manifest.get('packages_install_folder', './_packages/published')
+            lock_file_path = Path(packages_install_folder) / "package.lock.json"
         except Exception as e:
             error_msg = f"✗ Error: Failed to read manifest file: {e}"
             print(error_msg)
