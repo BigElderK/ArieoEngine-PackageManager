@@ -308,14 +308,17 @@ def generate_package_lock(install_order, packages_data, packages_src_folder, pac
             "output_folder": str((Path(packages_output_folder).resolve() / pkg_info['folder_name'])),
             "environment_variables": [
                 {
+                    "type": "public",
                     "name": base_env_var_name + '_OUTPUT_FOLDER',
                     "value": str((Path(packages_output_folder).resolve() / pkg_info['folder_name']))
                 },
                 {
+                    "type": "private",
                     "name": base_env_var_name + '_SOURCE_FOLDER',
                     "value": str(pkg_info['path'].resolve())
                 },
                 {
+                    "type": "private",
                     "name": base_env_var_name + '_BUILD_FOLDER',
                     "value": str((Path(packages_build_folder).resolve() / pkg_info['folder_name']))
                 }

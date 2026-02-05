@@ -143,19 +143,20 @@ def install_packages_from_lock(lock_file_path, package_filter=None, extra_env_va
     # Sort packages by build_index to ensure correct build order
     install_order.sort(key=lambda pkg_name: packages[pkg_name].get('build_index', 999))
     
-    # Gather all environment variables from all packages into a single map
-    global_env_vars_map = {}
+    # Gather all public environment variables from all packages
+    public_env_vars_map = {}
     for pkg_name, pkg_info in packages.items():
         environment_variables = pkg_info.get('environment_variables', [])
         for env_var in environment_variables:
+            env_type = env_var.get('type', 'public')  # Default to public if not specified
             env_name = env_var.get('name')
             env_value = env_var.get('value')
-            if env_name and env_value:
-                global_env_vars_map[env_name] = env_value
+            if env_type == 'public' and env_name and env_value:
+                public_env_vars_map[env_name] = env_value
     
-    # Add extra environment variables from command line
+    # Add extra environment variables from command line (treated as public)
     if extra_env_vars:
-        global_env_vars_map.update(extra_env_vars)
+        public_env_vars_map.update(extra_env_vars)
     
     for idx, pkg_name in enumerate(install_order, 1):
         if pkg_name not in packages:
@@ -171,7 +172,19 @@ def install_packages_from_lock(lock_file_path, package_filter=None, extra_env_va
         source_folder = pkg_info['source_folder']
         output_folder = pkg_info['output_folder']
         
-        install_package_from_src_folder(source_folder, output_folder, global_env_vars_map)
+        # Build package-specific env vars map: all public + this package's private
+        package_env_vars_map = public_env_vars_map.copy()
+        
+        # Add private environment variables for the current package only
+        environment_variables = pkg_info.get('environment_variables', [])
+        for env_var in environment_variables:
+            env_type = env_var.get('type', 'public')
+            env_name = env_var.get('name')
+            env_value = env_var.get('value')
+            if env_type == 'private' and env_name and env_value:
+                package_env_vars_map[env_name] = env_value
+        
+        install_package_from_src_folder(source_folder, output_folder, package_env_vars_map)
 
 
 def build_all_packages(lock_file_path=None, manifest_file_path=None, package_filter=None, extra_env_vars=None):
@@ -191,24 +204,36 @@ def build_all_packages(lock_file_path=None, manifest_file_path=None, package_fil
             manifest_file_path = "package.manifest.json"
         
         manifest_path = Path(manifest_file_path)
-        if manifest_path.exists():
-            try:
-                with open(manifest_path, 'r', encoding='utf-8') as f:
-                    manifest = json.load(f)
-                packages_output_folder = manifest.get('packages_output_folder', './_packages/published')
-                lock_file_path = Path(packages_output_folder) / "package.lock.json"
-            except Exception:
-                pass
         
-        # Fallback to default location
-        if not lock_file_path or not Path(lock_file_path).exists():
-            lock_file_path = "engine_packages/package.lock.json"
+        # Check if manifest exists
+        if not manifest_path.exists():
+            error_msg = f"✗ Error: Manifest file not found at {manifest_path.resolve()}"
+            print(error_msg)
+            print("\nPlease specify the manifest file using --manifest option or ensure")
+            print("package.manifest.json exists in the current directory.")
+            print("\nExample: python build_packages.py --manifest=path/to/package.manifest.json")
+            sys.exit(1)
+        
+        # Load manifest to get lock file location
+        try:
+            with open(manifest_path, 'r', encoding='utf-8') as f:
+                manifest = json.load(f)
+            packages_output_folder = manifest.get('packages_output_folder', './_packages/published')
+            lock_file_path = Path(packages_output_folder) / "package.lock.json"
+        except Exception as e:
+            error_msg = f"✗ Error: Failed to read manifest file: {e}"
+            print(error_msg)
+            sys.exit(1)
     
     lock_path = Path(lock_file_path)
     if not lock_path.exists():
-        error_msg = f"✗ Error: package.lock.json not found at {lock_path}"
+        error_msg = f"✗ Error: package.lock.json not found at {lock_path.resolve()}"
         print(error_msg)
         print("\nPlease run init_packages.py first to download packages and generate the lock file.")
+        if manifest_file_path:
+            print(f"  python init_packages.py --manifest={manifest_file_path}")
+        else:
+            print(f"  python init_packages.py")
         sys.exit(1)
     
     print("ArieoEngine Package Builder")
