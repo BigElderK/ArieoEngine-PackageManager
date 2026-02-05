@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ArieoEngine Package Processor
-Handles building and installation of packages from package.lock.json
+Handles building and installation of packages from package resolve file (package.lock.json or packages_resolve.json)
 """
 
 import argparse
@@ -21,6 +21,41 @@ if str(_script_dir) not in sys.path:
 
 from build_package import build_package
 from install_package import install_package
+
+
+def gather_dependencies(package_names, packages):
+    """
+    Recursively gather all dependencies for given packages
+    
+    Args:
+        package_names: List of package names to gather dependencies for
+        packages: Dict of all packages from resolve file
+        
+    Returns:
+        set: Set of package names including dependencies
+    """
+    result = set()
+    
+    def add_package_with_deps(pkg_name):
+        if pkg_name in result or pkg_name not in packages:
+            return
+        
+        result.add(pkg_name)
+        
+        # Get dependencies
+        pkg_info = packages[pkg_name]
+        dependencies = pkg_info.get('dependencies', [])
+        
+        # Recursively add dependencies
+        for dep in dependencies:
+            dep_name = dep.get('name')
+            if dep_name:
+                add_package_with_deps(dep_name)
+    
+    for pkg_name in package_names:
+        add_package_with_deps(pkg_name)
+    
+    return result
 
 
 def load_package_data(src_folder):
@@ -96,36 +131,48 @@ def setup_environment(src_path, build_folder, install_folder, env_vars_map):
     return env
 
 
-def process_packages_from_lock(lock_file_path, package_filter=None, extra_env_vars=None, stage='build_and_install'):
+def process_packages_from_resolve(package_resolve_file_path, package_filter=None, extra_env_vars=None, stage='build_and_install', include_dependencies=False):
     """
-    Process (build and/or install) packages based on package.lock.json
+    Process (build and/or install) packages based on package resolve file
     
     Args:
-        lock_file_path: Path to the lock file
+        package_resolve_file_path: Path to the resolve file (package.lock.json or packages_resolve.json)
         package_filter: Optional list of package names to process (processes all if None)
         extra_env_vars: Optional dict of additional environment variables to set
         stage: Which stage to execute - 'build', 'install', or 'build_and_install'
+        include_dependencies: If True, includes dependencies of filtered packages
     """
     try:
-        with open(lock_file_path, 'r', encoding='utf-8') as f:
-            lock_data = json.load(f)
+        with open(package_resolve_file_path, 'r', encoding='utf-8') as f:
+            resolve_data = json.load(f)
     except Exception as e:
-        error_msg = f"✗ Error: Failed to read package.lock.json: {e}"
+        error_msg = f"✗ Error: Failed to read package resolve file: {e}"
         print(error_msg)
         sys.exit(1)
     
-    install_order = lock_data.get('install_order', [])
-    packages = lock_data.get('packages', {})
+    install_order = resolve_data.get('install_order', [])
+    packages = resolve_data.get('packages', {})
     
     # Filter packages if requested
     if package_filter:
-        install_order = [pkg for pkg in install_order if pkg in package_filter]
-        if not install_order:
-            error_msg = f"✗ Error: None of the specified packages found in lock file"
+        # Check if requested packages exist
+        missing_packages = [pkg for pkg in package_filter if pkg not in packages]
+        if missing_packages:
+            error_msg = f"✗ Error: Package(s) not found in resolve file: {', '.join(missing_packages)}"
             print(error_msg)
-            print(f"  Requested: {', '.join(package_filter)}")
             print(f"  Available: {', '.join(packages.keys())}")
             sys.exit(1)
+        
+        # Include dependencies if requested
+        if include_dependencies:
+            packages_to_build = gather_dependencies(package_filter, packages)
+            deps_only = sorted(packages_to_build - set(package_filter))
+            if deps_only:
+                print(f"Including dependencies: {', '.join(deps_only)}")
+        else:
+            packages_to_build = set(package_filter)
+        
+        install_order = [pkg for pkg in install_order if pkg in packages_to_build]
     
     # Sort packages by build_index to ensure correct build order
     install_order.sort(key=lambda pkg_name: packages[pkg_name].get('build_index', 999))
@@ -147,8 +194,7 @@ def process_packages_from_lock(lock_file_path, package_filter=None, extra_env_va
     
     for idx, pkg_name in enumerate(install_order, 1):
         if pkg_name not in packages:
-            error_msg = f"✗ Error: Package {pkg_name} not found in lock file"
-            print(error_msg)
+            error_msg = f"✗ Error: Package {pkg_name} not found in resolve file"
             sys.exit(1)
         
         pkg_info = packages[pkg_name]
@@ -187,7 +233,7 @@ def process_packages_from_lock(lock_file_path, package_filter=None, extra_env_va
             install_package(src_path, package_data, package_name, package_version, env)
 
 
-def process_packages_from_manifest(manifest_file_path=None, package_filter=None, extra_env_vars=None, stage='build_and_install'):
+def process_packages_from_manifest(manifest_file_path=None, package_filter=None, extra_env_vars=None, stage='build_and_install', include_dependencies=False):
     """
     Process packages from manifest file for all combinations of environment variables
     
@@ -196,6 +242,7 @@ def process_packages_from_manifest(manifest_file_path=None, package_filter=None,
         package_filter: Optional list of package names to process (processes all if None)
         extra_env_vars: Optional dict of additional environment variables to set (can contain lists for multi-value)
         stage: Which stage to execute - 'build', 'install', or 'build_and_install'
+        include_dependencies: If True, includes dependencies of filtered packages
     """
     # Try to load from specified or default manifest file
     if not manifest_file_path:
@@ -222,22 +269,23 @@ def process_packages_from_manifest(manifest_file_path=None, package_filter=None,
         print("\nExample: python process_packages.py --manifest=path/to/package.manifest.yaml")
         sys.exit(1)
     
-    # Load manifest to get lock file location
+    # Load manifest to get resolve file location
     try:
         with open(manifest_path, 'r', encoding='utf-8') as f:
             manifest = yaml.safe_load(f)
         packages_install_folder = manifest.get('packages_install_folder', './_packages/published')
-        lock_file_path = Path(packages_install_folder) / "package.lock.json"
+        # Use packages_resolve_file if specified, otherwise fall back to package.lock.json in install folder
+        package_resolve_file_path = manifest.get('packages_resolve_file', str(Path(packages_install_folder) / 'package.lock.json'))
     except Exception as e:
         error_msg = f"✗ Error: Failed to read manifest file: {e}"
         print(error_msg)
         sys.exit(1)
     
-    lock_path = Path(lock_file_path)
-    if not lock_path.exists():
-        error_msg = f"✗ Error: package.lock.json not found at {lock_path.resolve()}"
+    package_resolve_file_path = Path(package_resolve_file_path)
+    if not package_resolve_file_path.exists():
+        error_msg = f"✗ Error: Package resolve file not found at {package_resolve_file_path.resolve()}"
         print(error_msg)
-        print("\nPlease run init_packages.py first to download packages and generate the lock file.")
+        print("\nPlease run init_packages.py first to download packages and generate the resolve file.")
         if manifest_file_path:
             print(f"  python init_packages.py --manifest={manifest_file_path}")
         else:
@@ -246,32 +294,44 @@ def process_packages_from_manifest(manifest_file_path=None, package_filter=None,
     
     print("ArieoEngine Package Builder")
     print("=" * 60)
-    print(f"Lock file: {lock_path.resolve()}")
+    print(f"Package resolve file: {package_resolve_file_path.resolve()}")
     
     if package_filter:
         print(f"Package filter: {', '.join(package_filter)}")
     
-    # Load lock file to get package information
+    # Load package resolve file to get package information
     try:
-        with open(lock_path, 'r', encoding='utf-8') as f:
-            lock_data = json.load(f)
+        with open(package_resolve_file_path, 'r', encoding='utf-8') as f:
+            resolve_data = json.load(f)
     except Exception as e:
-        error_msg = f"✗ Error: Failed to read package.lock.json: {e}"
+        error_msg = f"✗ Error: Failed to read package resolve file: {e}"
         print(error_msg)
         sys.exit(1)
     
-    install_order = lock_data.get('install_order', [])
-    packages = lock_data.get('packages', {})
+    install_order = resolve_data.get('install_order', [])
+    packages = resolve_data.get('packages', {})
     
     # Filter packages if requested
     if package_filter:
-        install_order = [pkg for pkg in install_order if pkg in package_filter]
-        if not install_order:
-            error_msg = f"✗ Error: None of the specified packages found in lock file"
+        # Validate that packages exist
+        missing_packages = [pkg for pkg in package_filter if pkg not in packages]
+        if missing_packages:
+            error_msg = f"✗ Error: Package(s) not found in resolve file: {', '.join(missing_packages)}"
             print(error_msg)
-            print(f"  Requested: {', '.join(package_filter)}")
             print(f"  Available: {', '.join(packages.keys())}")
             sys.exit(1)
+        
+        # Include dependencies if requested
+        if include_dependencies:
+            packages_to_build = gather_dependencies(package_filter, packages)
+            deps_only = sorted(packages_to_build - set(package_filter))
+            if deps_only:
+                print(f"Including dependencies: {', '.join(deps_only)}")
+        else:
+            packages_to_build = set(package_filter)
+        
+        # Filter the install order
+        install_order = [pkg for pkg in install_order if pkg in packages_to_build]
     
     # Sort packages by build_index to ensure correct build order
     install_order.sort(key=lambda pkg_name: packages[pkg_name].get('build_index', 999))
@@ -315,8 +375,9 @@ def process_packages_from_manifest(manifest_file_path=None, package_filter=None,
         
         print(f"{'#'*60}")
         
-        # Process packages from lock file with this environment combination
-        process_packages_from_lock(str(lock_path), package_filter, env_combo, stage)
+        # Process packages from resolve file with this environment combination
+        # Pass install_order (already filtered) instead of package_filter to avoid re-filtering
+        process_packages_from_resolve(str(package_resolve_file_path), install_order, env_combo, stage, False)
     
     print(f"\n{'='*60}")
     print(f"✓ All {len(env_combinations)} combinations processed successfully")
@@ -467,6 +528,14 @@ Examples:
         help='Which stage to execute: build, install, or build_and_install (default: build_and_install)'
     )
     
+    parser.add_argument(
+        '--include-dependencies',
+        dest='include_dependencies',
+        default='yes',
+        choices=['yes', 'no'],
+        help='Include dependencies of filtered packages (default: yes)'
+    )
+    
     # Parse known args to handle --env{VAR}=value format
     args, unknown = parser.parse_known_args()
     
@@ -478,6 +547,9 @@ Examples:
     if unrecognized:
         parser.error(f"unrecognized arguments: {' '.join(unrecognized)}")
     
+    # Convert include_dependencies to boolean
+    include_deps = args.include_dependencies.lower() == 'yes'
+    
     # Process packages
-    process_packages_from_manifest(args.manifest_file, args.packages, extra_env_vars, args.stage)
+    process_packages_from_manifest(args.manifest_file, args.packages, extra_env_vars, args.stage, include_deps)
     sys.exit(0)

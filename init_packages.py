@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 ArieoEngine Package Initializer
-Handles downloading packages and generating package.lock.json with dependency resolution
+Handles downloading packages and generating package resolve file with dependency resolution
 """
 
 import json
@@ -272,9 +272,9 @@ def load_manifest(manifest_file_path=None):
         sys.exit(1)
 
 
-def generate_package_lock(install_order, packages_data, packages_src_folder, packages_install_folder, packages_build_folder):
+def generate_package_resolve_file(install_order, packages_data, packages_src_folder, packages_install_folder, packages_build_folder, package_resolve_file_path):
     """
-    Generate package.lock.json with installation order and package details
+    Generate package resolve file (package.lock.json or packages_resolve.json) with installation order and package details
     
     Args:
         install_order: List of package names in installation order
@@ -282,11 +282,12 @@ def generate_package_lock(install_order, packages_data, packages_src_folder, pac
         packages_src_folder: Source folder path
         packages_install_folder: Output folder path
         packages_build_folder: Build folder path
+        package_resolve_file_path: Path where to write the resolve file
         
     Returns:
-        str: Path to generated lock file
+        str: Path to generated resolve file
     """
-    lock_data = {
+    resolve_data = {
         "generated_at": subprocess.run(['date', '/T'], capture_output=True, text=True, shell=True).stdout.strip() if os.name == 'nt' else subprocess.run(['date'], capture_output=True, text=True).stdout.strip(),
         "packages_src_folder": str(Path(packages_src_folder).resolve()),
         "packages_install_folder": str(Path(packages_install_folder).resolve()),
@@ -295,7 +296,7 @@ def generate_package_lock(install_order, packages_data, packages_src_folder, pac
         "packages": {}
     }
     
-    # Build lock data
+    # Build resolve data
     for idx, pkg_name in enumerate(install_order, 1):
         pkg_info = packages_data[pkg_name]
         arieo_data = pkg_info.get('arieo_package_data') or {}
@@ -349,21 +350,21 @@ def generate_package_lock(install_order, packages_data, packages_src_folder, pac
                 "tag": dep_tag
             })
         
-        lock_data['install_order'].append(pkg_name)
-        lock_data['packages'][pkg_name] = package_entry
+        resolve_data['install_order'].append(pkg_name)
+        resolve_data['packages'][pkg_name] = package_entry
     
-    # Write lock file
-    lock_file_path = Path(packages_install_folder) / "package.lock.json"
+    # Write resolve file
+    package_resolve_file_path = Path(package_resolve_file_path)
     try:
         # Create output folder if it doesn't exist
-        Path(packages_install_folder).mkdir(parents=True, exist_ok=True)
+        package_resolve_file_path.parent.mkdir(parents=True, exist_ok=True)
         
-        with open(lock_file_path, 'w', encoding='utf-8') as f:
-            json.dump(lock_data, f, indent=4, ensure_ascii=False)
-        print(f"✓ Generated {lock_file_path}")
-        return str(lock_file_path)
+        with open(package_resolve_file_path, 'w', encoding='utf-8') as f:
+            json.dump(resolve_data, f, indent=4, ensure_ascii=False)
+        print(f"✓ Generated {package_resolve_file_path.resolve()}")
+        return str(package_resolve_file_path.resolve())
     except Exception as e:
-        error_msg = f"✗ Error: Failed to write package.lock.json: {e}"
+        error_msg = f"✗ Error: Failed to write resolve file: {e}"
         print(error_msg)
         sys.exit(1)
 
@@ -380,6 +381,7 @@ def init_all_packages(manifest_file_path=None):
     packages_src_folder = manifest.get('packages_src_folder', './_packages/src')
     packages_install_folder = manifest.get('packages_install_folder', './_packages/published')
     packages_build_folder = manifest.get('packages_build_folder', './_build')
+    packages_resolve_file = manifest.get('packages_resolve_file', str(Path(packages_install_folder) / 'package.lock.json'))
     packages_dict = manifest.get('packages', {})
     
     # Count total packages across all categories
@@ -437,11 +439,11 @@ def init_all_packages(manifest_file_path=None):
     install_order = topological_sort(packages_data)
     
     print(f"\n{'='*60}")
-    print(f"STEP 3: Generating package.lock.json")
+    print(f"STEP 3: Generating package resolve file")
     print(f"{'='*60}")
     
-    # Generate lock file with installation details
-    lock_file_path = generate_package_lock(install_order, packages_data, packages_src_folder, packages_install_folder, packages_build_folder)
+    # Generate resolve file with installation details
+    package_resolve_file_path = generate_package_resolve_file(install_order, packages_data, packages_src_folder, packages_install_folder, packages_build_folder, packages_resolve_file)
     
     # Display installation order
     print(f"\nBuild order:")
@@ -461,14 +463,14 @@ def init_all_packages(manifest_file_path=None):
                     dep_name = dep_url.rstrip('/').split('/')[-1].replace('.git', '')
                     print(f"       - {dep_name}")
     
-    return lock_file_path
+    return package_resolve_file_path
 
 
 if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(
-        description='ArieoEngine Package Initializer - Downloads packages and generates package.lock.json',
+        description='ArieoEngine Package Initializer - Downloads packages and generates package resolve file',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
@@ -481,14 +483,14 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # Download and generate lock file for all packages from manifest
+    # Download and generate resolve file for all packages from manifest
     print("ArieoEngine Package Initializer")
     print("=" * 60)
     
-    lock_file_path = init_all_packages(args.manifest_file)
+    package_resolve_file_path = init_all_packages(args.manifest_file)
     
     print(f"\n{'='*60}")
-    print("✓ All packages downloaded and lock file generated")
+    print("✓ All packages downloaded and resolve file generated")
     print(f"{'='*60}")
     print(f"\nTo build the packages, run:")
     print(f"  python build_packages.py")
