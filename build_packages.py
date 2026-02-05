@@ -14,13 +14,13 @@ from itertools import product
 from pathlib import Path
 
 
-def install_package_from_src_folder(src_folder, install_folder=None, env_vars_map=None):
+def install_package_from_src_folder(src_folder, output_folder=None, env_vars_map=None):
     """
     Install a package from a source folder containing package.json
     
     Args:
         src_folder: Path to the package source folder (relative or absolute)
-        install_folder: Path to the install folder (sets INSTALL_FOLDER env var)
+        output_folder: Path to the output folder (sets OUTPUT_FOLDER env var)
         env_vars_map: Dict mapping environment variable names to values
     """
     # Convert to Path object and resolve to absolute path
@@ -74,12 +74,12 @@ def install_package_from_src_folder(src_folder, install_folder=None, env_vars_ma
                 env[env_name] = env_value
                 print(f"  {env_name}={env_value}")
         
-        # Legacy support: also set INSTALL_FOLDER if provided directly
-        if install_folder and (not env_vars_map or 'INSTALL_FOLDER' not in env_vars_map):
+        # Legacy support: also set OUTPUT_FOLDER if provided directly
+        if output_folder and (not env_vars_map or 'OUTPUT_FOLDER' not in env_vars_map):
             # Resolve to absolute path
-            install_path = Path(install_folder).resolve()
-            env['INSTALL_FOLDER'] = str(install_path)
-            print(f"  INSTALL_FOLDER={install_path}")
+            output_path = Path(output_folder).resolve()
+            env['OUTPUT_FOLDER'] = str(output_path)
+            print(f"  OUTPUT_FOLDER={output_path}")
         
         # Execute each build command
         for idx, build_command in enumerate(build_commands, 1):
@@ -169,9 +169,9 @@ def install_packages_from_lock(lock_file_path, package_filter=None, extra_env_va
         print("-" * 60)
         
         source_folder = pkg_info['source_folder']
-        install_folder = pkg_info['install_folder']
+        output_folder = pkg_info['output_folder']
         
-        install_package_from_src_folder(source_folder, install_folder, global_env_vars_map)
+        install_package_from_src_folder(source_folder, output_folder, global_env_vars_map)
 
 
 def build_all_packages(lock_file_path=None, manifest_file_path=None, package_filter=None, extra_env_vars=None):

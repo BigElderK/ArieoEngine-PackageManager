@@ -305,7 +305,7 @@ def generate_package_lock(install_order, packages_data, packages_src_folder, pac
             "git_url": pkg_info['git_url'],
             "tag": pkg_info['tag'],
             "source_folder": str(pkg_info['path'].resolve()),
-            "install_folder": str((Path(packages_output_folder).resolve() / pkg_info['folder_name'])),
+            "output_folder": str((Path(packages_output_folder).resolve() / pkg_info['folder_name'])),
             "environment_variables": [
                 {
                     "name": base_env_var_name + '_OUTPUT_FOLDER',
