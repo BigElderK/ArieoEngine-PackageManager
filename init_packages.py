@@ -239,25 +239,21 @@ def topological_sort(packages_data):
 
 def load_manifest(manifest_file_path=None):
     """
-    Load package manifest file (YAML or JSON format)
+    Load package manifest file (YAML format)
     
     Args:
-        manifest_file_path: Optional path to manifest file. If not provided, tries "package.manifest.yaml" then "package.manifest.json"
+        manifest_file_path: Optional path to manifest file. If not provided, uses "package.manifest.yaml"
     
     Returns:
         dict: Manifest data or None if failed
     """
     if not manifest_file_path:
-        # Try YAML first, then fall back to JSON for backward compatibility
         yaml_path = Path("package.manifest.yaml")
-        json_path = Path("package.manifest.json")
         
         if yaml_path.exists():
             manifest_path = yaml_path
-        elif json_path.exists():
-            manifest_path = json_path
         else:
-            error_msg = "✗ Error: package.manifest.yaml or package.manifest.json not found"
+            error_msg = "✗ Error: package.manifest.yaml not found"
             print(error_msg)
             sys.exit(1)
     else:
@@ -269,10 +265,7 @@ def load_manifest(manifest_file_path=None):
     
     try:
         with open(manifest_path, 'r', encoding='utf-8') as f:
-            if manifest_path.suffix.lower() in ['.yaml', '.yml']:
-                return yaml.safe_load(f)
-            else:
-                return json.load(f)
+            return yaml.safe_load(f)
     except Exception as e:
         error_msg = f"✗ Error: Failed to read manifest file: {e}"
         print(error_msg)
@@ -339,6 +332,7 @@ def generate_package_lock(install_order, packages_data, packages_src_folder, pac
                 }
             ],
             "build_commands": arieo_data.get('build_commands', []),
+            "install_commands": arieo_data.get('install_commands', []),
             "dependencies": []
         }
         
@@ -376,7 +370,7 @@ def generate_package_lock(install_order, packages_data, packages_src_folder, pac
 
 def init_all_packages(manifest_file_path=None):
     """
-    Download all packages from package.manifest.json with dependency resolution
+    Download all packages from package.manifest.yaml with dependency resolution
     
     Args:
         manifest_file_path: Optional path to manifest file
@@ -482,7 +476,7 @@ if __name__ == "__main__":
         '--manifest',
         dest='manifest_file',
         default=None,
-        help='Path to package.manifest.json (optional, defaults to package.manifest.json in current directory)'
+        help='Path to package.manifest.yaml (optional, defaults to package.manifest.yaml in current directory)'
     )
     
     args = parser.parse_args()

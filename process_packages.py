@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ArieoEngine Package Builder
+ArieoEngine Package Processor
 Handles building and installation of packages from package.lock.json
 """
 
@@ -14,18 +14,25 @@ from itertools import product
 from pathlib import Path
 import yaml
 
+# Add script directory to path for imports
+_script_dir = Path(__file__).parent
+if str(_script_dir) not in sys.path:
+    sys.path.insert(0, str(_script_dir))
 
-def install_package_from_src_folder(src_folder, build_folder=None, install_folder=None, env_vars_map=None):
+from build_package import build_package
+from install_package import install_package
+
+
+def load_package_data(src_folder):
     """
-    Install a package from a source folder containing package.json
+    Load package data from arieo_package.json
     
     Args:
-        src_folder: Path to the package source folder (relative or absolute)
-        build_folder: Path to the build folder (sets BUILD_FOLDER env var)
-        install_folder: Path to the install folder (sets INSTALL_FOLDER env var)
-        env_vars_map: Dict mapping environment variable names to values
+        src_folder: Path to the package source folder
+        
+    Returns:
+        tuple: (src_path, package_data, package_name, package_version)
     """
-    # Convert to Path object and resolve to absolute path
     src_path = Path(src_folder).resolve()
     
     if not src_path.exists():
@@ -33,14 +40,12 @@ def install_package_from_src_folder(src_folder, build_folder=None, install_folde
         print(error_msg)
         sys.exit(1)
     
-    # Look for package.json
     package_json_path = src_path / "arieo_package.json"
     if not package_json_path.exists():
         error_msg = f"✗ Error: arieo_package.json not found in {src_path}"
         print(error_msg)
         sys.exit(1)
     
-    # Read package.json
     try:
         with open(package_json_path, 'r', encoding='utf-8') as f:
             package_data = json.load(f)
@@ -52,78 +57,54 @@ def install_package_from_src_folder(src_folder, build_folder=None, install_folde
     package_name = package_data.get('name', 'unknown')
     package_version = package_data.get('version', '0.0.0')
     
-    print(f"Installing package: {package_name} v{package_version}")
-    print(f"Source folder: {src_path}")
-    
-    # Check if build_commands exists
-    build_commands = package_data.get('build_commands', [])
-    if not build_commands:
-        print(f"Warning: No build_commands specified in arieo_package.json")
-        return True
-    
-    # Execute build commands in the package directory
-    try:
-        # Change to package directory
-        original_cwd = os.getcwd()
-        os.chdir(src_path)
-        
-        # Set up environment variables
-        env = os.environ.copy()
-        
-        # Apply all environment variables from the map
-        if env_vars_map:
-            for env_name, env_value in env_vars_map.items():
-                env[env_name] = env_value
-                print(f"  {env_name}={env_value}")
-        
-        # Set BUILD_FOLDER and INSTALL_FOLDER if provided directly
-        if build_folder and (not env_vars_map or 'BUILD_FOLDER' not in env_vars_map):
-            build_path = Path(build_folder).resolve()
-            env['BUILD_FOLDER'] = str(build_path)
-            print(f"  BUILD_FOLDER={build_path}")
-        
-        if install_folder and (not env_vars_map or 'INSTALL_FOLDER' not in env_vars_map):
-            install_path = Path(install_folder).resolve()
-            env['INSTALL_FOLDER'] = str(install_path)
-            print(f"  INSTALL_FOLDER={install_path}")
-        
-        # Execute each build command
-        for idx, build_command in enumerate(build_commands, 1):
-            print(f"Executing command {idx}/{len(build_commands)}: {build_command}")
-            result = subprocess.run(
-                build_command,
-                shell=True,
-                capture_output=False,
-                text=True,
-                env=env
-            )
-            
-            if result.returncode != 0:
-                error_msg = f"✗ Failed to execute command {idx}: {build_command}"
-                print(error_msg)
-                os.chdir(original_cwd)
-                sys.exit(1)
-        
-        # Restore original directory
-        os.chdir(original_cwd)
-        print(f"✓ Successfully installed {package_name}")
-        return True
-            
-    except Exception as e:
-        os.chdir(original_cwd)
-        error_msg = f"✗ Error executing install command: {e}"
-        print(error_msg)
-        sys.exit(1)
+    return src_path, package_data, package_name, package_version
 
 
-def install_packages_from_lock(lock_file_path, package_filter=None, extra_env_vars=None):
+def setup_environment(src_path, build_folder, install_folder, env_vars_map):
     """
-    Install packages based on package.lock.json
+    Setup environment variables for package build/install
+    
+    Args:
+        src_path: Resolved source path
+        build_folder: Build folder path
+        install_folder: Install folder path
+        env_vars_map: Additional environment variables
+        
+    Returns:
+        dict: Environment variables dictionary
+    """
+    env = os.environ.copy()
+    
+    env['SOURCE_FOLDER'] = str(src_path)
+    print(f"  SOURCE_FOLDER={src_path}")
+    
+    if build_folder:
+        build_path = Path(build_folder).resolve()
+        env['BUILD_FOLDER'] = str(build_path)
+        print(f"  BUILD_FOLDER={build_path}")
+    
+    if install_folder:
+        install_path = Path(install_folder).resolve()
+        env['INSTALL_FOLDER'] = str(install_path)
+        print(f"  INSTALL_FOLDER={install_path}")
+    
+    if env_vars_map:
+        for env_name, env_value in env_vars_map.items():
+            env[env_name] = env_value
+            print(f"  {env_name}={env_value}")
+    
+    return env
+
+
+def process_packages_from_lock(lock_file_path, package_filter=None, extra_env_vars=None, stage='build_and_install'):
+    """
+    Process (build and/or install) packages based on package.lock.json
     
     Args:
         lock_file_path: Path to the lock file
-        package_filter: Optional list of package names to build (builds all if None)
+        package_filter: Optional list of package names to process (processes all if None)
         extra_env_vars: Optional dict of additional environment variables to set
+        stage: Which stage to execute - 'build', 'install', or 'build_and_install'
     """
     try:
         with open(lock_file_path, 'r', encoding='utf-8') as f:
@@ -172,7 +153,8 @@ def install_packages_from_lock(lock_file_path, package_filter=None, extra_env_va
         
         pkg_info = packages[pkg_name]
         
-        print(f"\n[{idx}/{len(install_order)}] Building {pkg_name} (tag: {pkg_info['tag']})")
+        stage_text = {'build': 'Building', 'install': 'Installing', 'build_and_install': 'Processing'}[stage]
+        print(f"\n[{idx}/{len(install_order)}] {stage_text} {pkg_name} (tag: {pkg_info['tag']})")
         print("-" * 60)
         
         source_folder = pkg_info['source_folder']
@@ -191,63 +173,65 @@ def install_packages_from_lock(lock_file_path, package_filter=None, extra_env_va
             if env_type == 'private' and env_name and env_value:
                 package_env_vars_map[env_name] = env_value
         
-        install_package_from_src_folder(source_folder, build_folder, install_folder, package_env_vars_map)
+        # Load package data once
+        src_path, package_data, package_name, package_version = load_package_data(source_folder)
+        env = setup_environment(src_path, build_folder, install_folder, package_env_vars_map)
+        
+        # Execute build and/or install based on stage
+        if stage == 'build':
+            build_package(src_path, package_data, package_name, package_version, env)
+        elif stage == 'install':
+            install_package(src_path, package_data, package_name, package_version, env)
+        else:  # stage == 'build_and_install'
+            build_package(src_path, package_data, package_name, package_version, env)
+            install_package(src_path, package_data, package_name, package_version, env)
 
 
-def build_all_packages(lock_file_path=None, manifest_file_path=None, package_filter=None, extra_env_vars=None):
+def process_packages_from_manifest(manifest_file_path=None, package_filter=None, extra_env_vars=None, stage='build_and_install'):
     """
-    Build all packages from package.lock.json for all combinations of environment variables
+    Process packages from manifest file for all combinations of environment variables
     
     Args:
-        lock_file_path: Optional path to lock file. If not provided, derives from manifest or uses default
         manifest_file_path: Optional path to package manifest file
-        package_filter: Optional list of package names to build (builds all if None)
+        package_filter: Optional list of package names to process (processes all if None)
         extra_env_vars: Optional dict of additional environment variables to set (can contain lists for multi-value)
+        stage: Which stage to execute - 'build', 'install', or 'build_and_install'
     """
-    # If no lock file specified, try to derive from manifest
-    if not lock_file_path:
-        # Try to load from specified or default manifest file
-        if not manifest_file_path:
-            # Try YAML first, then fall back to JSON for backward compatibility
-            yaml_path = Path("package.manifest.yaml")
-            json_path = Path("package.manifest.json")
-            
-            if yaml_path.exists():
-                manifest_file_path = "package.manifest.yaml"
-            elif json_path.exists():
-                manifest_file_path = "package.manifest.json"
-            else:
-                error_msg = "✗ Error: package.manifest.yaml or package.manifest.json not found"
-                print(error_msg)
-                print("\nPlease specify the manifest file using --manifest option or ensure")
-                print("package.manifest.yaml (or .json) exists in the current directory.")
-                print("\nExample: python build_packages.py --manifest=path/to/package.manifest.yaml")
-                sys.exit(1)
+    # Try to load from specified or default manifest file
+    if not manifest_file_path:
+        yaml_path = Path("package.manifest.yaml")
         
-        manifest_path = Path(manifest_file_path)
-        
-        # Check if manifest exists
-        if not manifest_path.exists():
-            error_msg = f"✗ Error: Manifest file not found at {manifest_path.resolve()}"
+        if yaml_path.exists():
+            manifest_file_path = "package.manifest.yaml"
+        else:
+            error_msg = "✗ Error: package.manifest.yaml not found"
             print(error_msg)
             print("\nPlease specify the manifest file using --manifest option or ensure")
-            print("the manifest file exists in the current directory.")
-            print("\nExample: python build_packages.py --manifest=path/to/package.manifest.yaml")
+            print("package.manifest.yaml exists in the current directory.")
+            print("\nExample: python process_packages.py --manifest=path/to/package.manifest.yaml")
             sys.exit(1)
-        
-        # Load manifest to get lock file location
-        try:
-            with open(manifest_path, 'r', encoding='utf-8') as f:
-                if manifest_path.suffix.lower() in ['.yaml', '.yml']:
-                    manifest = yaml.safe_load(f)
-                else:
-                    manifest = json.load(f)
-            packages_install_folder = manifest.get('packages_install_folder', './_packages/published')
-            lock_file_path = Path(packages_install_folder) / "package.lock.json"
-        except Exception as e:
-            error_msg = f"✗ Error: Failed to read manifest file: {e}"
-            print(error_msg)
-            sys.exit(1)
+    
+    manifest_path = Path(manifest_file_path)
+    
+    # Check if manifest exists
+    if not manifest_path.exists():
+        error_msg = f"✗ Error: Manifest file not found at {manifest_path.resolve()}"
+        print(error_msg)
+        print("\nPlease specify the manifest file using --manifest option or ensure")
+        print("the manifest file exists in the current directory.")
+        print("\nExample: python process_packages.py --manifest=path/to/package.manifest.yaml")
+        sys.exit(1)
+    
+    # Load manifest to get lock file location
+    try:
+        with open(manifest_path, 'r', encoding='utf-8') as f:
+            manifest = yaml.safe_load(f)
+        packages_install_folder = manifest.get('packages_install_folder', './_packages/published')
+        lock_file_path = Path(packages_install_folder) / "package.lock.json"
+    except Exception as e:
+        error_msg = f"✗ Error: Failed to read manifest file: {e}"
+        print(error_msg)
+        sys.exit(1)
     
     lock_path = Path(lock_file_path)
     if not lock_path.exists():
@@ -323,7 +307,7 @@ def build_all_packages(lock_file_path=None, manifest_file_path=None, package_fil
     # Build packages for each combination
     for combo_idx, env_combo in enumerate(env_combinations, 1):
         print(f"\n{'#'*60}")
-        print(f"BUILDING COMBINATION {combo_idx}/{len(env_combinations)}")
+        print(f"PROCESSING COMBINATION {combo_idx}/{len(env_combinations)}")
         print(f"{'#'*60}")
         
         for key, value in env_combo.items():
@@ -331,11 +315,11 @@ def build_all_packages(lock_file_path=None, manifest_file_path=None, package_fil
         
         print(f"{'#'*60}")
         
-        # Build packages from lock file with this environment combination
-        install_packages_from_lock(str(lock_path), package_filter, env_combo)
+        # Process packages from lock file with this environment combination
+        process_packages_from_lock(str(lock_path), package_filter, env_combo, stage)
     
     print(f"\n{'='*60}")
-    print(f"✓ All {len(env_combinations)} combinations built successfully")
+    print(f"✓ All {len(env_combinations)} combinations processed successfully")
     print(f"{'='*60}")
 
 
@@ -431,26 +415,32 @@ def generate_env_combinations(env_vars):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description='ArieoEngine Package Builder',
+        description='ArieoEngine Package Processor',
         epilog='''
 Examples:
-  # Build all packages
-  python build_packages.py
+  # Build and install all packages
+  python process_packages.py
+  
+  # Only build packages (skip install stage)
+  python process_packages.py --stage=build
+  
+  # Only install packages (skip build stage)
+  python process_packages.py --stage=install
   
   # Build specific packages
-  python build_packages.py --package=ArieoEngine-BuildEnv --package=ArieoEngine-ThirdParties
+  python process_packages.py --package=ArieoEngine-BuildEnv --package=ArieoEngine-ThirdParties
   
   # Build with custom environment variables
-  python build_packages.py --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=windows.x86_64 --env{ARIEO_PACKAGE_BUILDENV_HOST_BUILD_TYPE}=Release
+  python process_packages.py --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=windows.x86_64 --env{ARIEO_PACKAGE_BUILDENV_HOST_BUILD_TYPE}=Release
   
   # Build with multi-value environment variables (builds all combinations)
-  python build_packages.py --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=[windows.x86_64, ubuntu.x86_64] --env{ARIEO_PACKAGE_BUILDENV_HOST_BUILD_TYPE}=[Release, Debug]
+  python process_packages.py --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=[windows.x86_64, ubuntu.x86_64] --env{ARIEO_PACKAGE_BUILDENV_HOST_BUILD_TYPE}=[Release, Debug]
   
   # Build with repeated environment variables (builds all combinations)
-  python build_packages.py --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=windows.x86_64 --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=ubuntu.x86_64 --env{ARIEO_PACKAGE_BUILDENV_HOST_BUILD_TYPE}=Release --env{ARIEO_PACKAGE_BUILDENV_HOST_BUILD_TYPE}=Debug
+  python process_packages.py --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=windows.x86_64 --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=ubuntu.x86_64 --env{ARIEO_PACKAGE_BUILDENV_HOST_BUILD_TYPE}=Release --env{ARIEO_PACKAGE_BUILDENV_HOST_BUILD_TYPE}=Debug
   
   # Combine package filter and environment variables
-  python build_packages.py --package=ArieoEngine-BuildEnv --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=windows.x86_64
+  python process_packages.py --package=ArieoEngine-BuildEnv --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=windows.x86_64
         ''',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -463,17 +453,18 @@ Examples:
     )
     
     parser.add_argument(
-        '--lock-file',
-        dest='lock_file',
-        default=None,
-        help='Path to package.lock.json (optional, will search default locations if not provided)'
-    )
-    
-    parser.add_argument(
         '--manifest',
         dest='manifest_file',
         default=None,
-        help='Path to package.manifest.json (optional, defaults to package.manifest.json in current directory)'
+        help='Path to package.manifest.yaml (optional, defaults to package.manifest.yaml in current directory)'
+    )
+    
+    parser.add_argument(
+        '--stage',
+        dest='stage',
+        default='build_and_install',
+        choices=['build', 'install', 'build_and_install'],
+        help='Which stage to execute: build, install, or build_and_install (default: build_and_install)'
     )
     
     # Parse known args to handle --env{VAR}=value format
@@ -487,6 +478,6 @@ Examples:
     if unrecognized:
         parser.error(f"unrecognized arguments: {' '.join(unrecognized)}")
     
-    # Build packages
-    build_all_packages(args.lock_file, args.manifest_file, args.packages, extra_env_vars)
+    # Process packages
+    process_packages_from_manifest(args.manifest_file, args.packages, extra_env_vars, args.stage)
     sys.exit(0)
