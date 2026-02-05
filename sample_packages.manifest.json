@@ -1,0 +1,28 @@
+{
+    "packages_output_folder": "./engine_packages",
+    "packages_src_folder": "./engine_sources",
+    "packages_build_folder": "./engine_builds",
+    "packages": {
+        "00_build":
+        [
+            {
+                "git_url": "https://github.com/BigElderK/ArieoEngine-BuildEnv.git",
+                "tag": "main"
+            }
+        ],
+        "01_third_parties":
+        [
+            {
+                "git_url": "https://github.com/BigElderK/ArieoEngine-ThirdParties.git",
+                "tag": "main"
+            }
+        ],
+        "02_core":
+        [
+            {
+                "git_url": "https://github.com/BigElderK/ArieoEngine-Core.git",
+                "tag": "main"
+            }
+        ]
+    }
+}
