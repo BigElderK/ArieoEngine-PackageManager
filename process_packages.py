@@ -353,7 +353,8 @@ def process_packages_from_manifest(manifest_file_path=None, package_filter=None,
     
     print(f"\nTotal combinations: {len(env_combinations)}")
     
-    print(f"\nPending build packages ({len(install_order)}):")
+    dependency_mode = "with" if include_dependencies else "without"
+    print(f"\nPending build packages [{dependency_mode} dependency] ({len(install_order)}):")
     for idx, pkg_name in enumerate(install_order, 1):
         pkg_info = packages[pkg_name]
         build_index = pkg_info.get('build_index') or pkg_info.get('install_index') or idx
