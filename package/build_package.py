@@ -36,15 +36,33 @@ def build_package(src_path, package_data, package_name, package_version, env):
     try:
         os.chdir(src_path)
         
+        # Add source path to environment for cross-platform access
+        env['ARIEO_PACKAGE_SOURCE_DIR'] = str(src_path)
+        
         print(f"\n=== Build Stage ===")
         for idx, build_command in enumerate(build_commands, 1):
-            print(f"[{idx}/{len(build_commands)}] {build_command}")
+            # Expand environment variables for cross-platform compatibility
+            # Support both $VAR, ${VAR} and $ENV{VAR} (CMake-style) syntax
+            import re
+            
+            # Merge process environment with package environment for expansion
+            full_env = os.environ.copy()
+            full_env.update(env)
+            
+            # Manually expand variables for cross-platform compatibility
+            expanded_command = build_command
+            for key, value in full_env.items():
+                expanded_command = expanded_command.replace(f'$ENV{{{key}}}', str(value))
+                expanded_command = expanded_command.replace(f'${{{key}}}', str(value))
+                expanded_command = expanded_command.replace(f'${key}', str(value))
+            
+            print(f"[{idx}/{len(build_commands)}] {expanded_command}")
             result = subprocess.run(
-                build_command,
+                expanded_command,
                 shell=True,
                 capture_output=False,
-                text=True,
-                env=env
+                env=full_env,
+                cwd=src_path
             )
             
             if result.returncode != 0:

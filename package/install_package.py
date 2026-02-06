@@ -37,15 +37,33 @@ def install_package(src_path, package_data, package_name, package_version, env):
     try:
         os.chdir(src_path)
         
+        # Add source path to environment for cross-platform access
+        env['ARIEO_PACKAGE_SOURCE_DIR'] = str(src_path)
+        
         print(f"\n=== Install Stage ===")
         for idx, install_command in enumerate(install_commands, 1):
-            print(f"[{idx}/{len(install_commands)}] {install_command}")
+            # Expand environment variables for cross-platform compatibility
+            # Support both $VAR, ${VAR} and $ENV{VAR} (CMake-style) syntax
+            import re
+            
+            # Merge process environment with package environment for expansion
+            full_env = os.environ.copy()
+            full_env.update(env)
+            
+            # Manually expand variables for cross-platform compatibility
+            expanded_command = install_command
+            for key, value in full_env.items():
+                expanded_command = expanded_command.replace(f'$ENV{{{key}}}', str(value))
+                expanded_command = expanded_command.replace(f'${{{key}}}', str(value))
+                expanded_command = expanded_command.replace(f'${key}', str(value))
+            
+            print(f"[{idx}/{len(install_commands)}] {expanded_command}")
             result = subprocess.run(
-                install_command,
+                expanded_command,
                 shell=True,
                 capture_output=False,
-                text=True,
-                env=env
+                env=full_env,
+                cwd=src_path
             )
             
             if result.returncode != 0:

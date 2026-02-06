@@ -19,8 +19,8 @@ _script_dir = Path(__file__).parent
 if str(_script_dir) not in sys.path:
     sys.path.insert(0, str(_script_dir))
 
-from build_package import build_package
-from install_package import install_package
+from package.build_package import build_package
+from package.install_package import install_package
 
 
 def gather_dependencies(package_names, packages):
@@ -125,7 +125,8 @@ def setup_environment(src_path, build_folder, install_folder, env_vars_map):
     
     if env_vars_map:
         for env_name, env_value in env_vars_map.items():
-            env[env_name] = env_value
+            # Convert to string to ensure compatibility with subprocess
+            env[env_name] = str(env_value)
             print(f"  {env_name}={env_value}")
     
     return env
