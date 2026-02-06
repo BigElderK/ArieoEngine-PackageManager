@@ -5,6 +5,7 @@ Handles installing packages by executing install_commands from arieo_package.jso
 """
 
 import os
+import shutil
 import subprocess
 import sys
 
