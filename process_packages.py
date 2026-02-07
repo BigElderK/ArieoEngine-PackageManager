@@ -569,16 +569,16 @@ Examples:
   python process_packages.py --package=ArieoEngine-BuildEnv --package=ArieoEngine-ThirdParties
   
   # Build with custom environment variables
-  python process_packages.py --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=windows.x86_64 --env{ARIEO_PACKAGE_BUILDENV_HOST_BUILD_TYPE}=Release
+  python process_packages.py --env{ARIEO_PACKAGE_BUILD_SETTING_HOST_PRESET}=windows.x86_64 --env{ARIEO_PACKAGE_BUILD_SETTING_BUILD_TYPE}=Release
   
   # Build with multi-value environment variables (builds all combinations)
-  python process_packages.py --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=[windows.x86_64, ubuntu.x86_64] --env{ARIEO_PACKAGE_BUILDENV_HOST_BUILD_TYPE}=[Release, Debug]
+  python process_packages.py --env{ARIEO_PACKAGE_BUILD_SETTING_HOST_PRESET}=[windows.x86_64, ubuntu.x86_64] --env{ARIEO_PACKAGE_BUILD_SETTING_BUILD_TYPE}=[Release, Debug]
   
   # Build with repeated environment variables (builds all combinations)
-  python process_packages.py --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=windows.x86_64 --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=ubuntu.x86_64 --env{ARIEO_PACKAGE_BUILDENV_HOST_BUILD_TYPE}=Release --env{ARIEO_PACKAGE_BUILDENV_HOST_BUILD_TYPE}=Debug
+  python process_packages.py --env{ARIEO_PACKAGE_BUILD_SETTING_HOST_PRESET}=windows.x86_64 --env{ARIEO_PACKAGE_BUILD_SETTING_HOST_PRESET}=ubuntu.x86_64 --env{ARIEO_PACKAGE_BUILD_SETTING_BUILD_TYPE}=Release --env{ARIEO_PACKAGE_BUILD_SETTING_BUILD_TYPE}=Debug
   
   # Combine package filter and environment variables
-  python process_packages.py --package=ArieoEngine-BuildEnv --env{ARIEO_PACKAGE_BUILDENV_HOST_PRESET}=windows.x86_64
+  python process_packages.py --package=ArieoEngine-BuildEnv --env{ARIEO_PACKAGE_BUILD_SETTING_HOST_PRESET}=windows.x86_64
         ''',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )

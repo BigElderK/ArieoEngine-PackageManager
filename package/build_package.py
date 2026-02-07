@@ -36,8 +36,10 @@ def build_package(src_path, package_data, package_name, package_version, env):
     try:
         os.chdir(src_path)
         
-        # Add source path to environment for cross-platform access
-        env['ARIEO_PACKAGE_SOURCE_DIR'] = str(src_path)
+        # Set ARIEO_BUILDENV_BUILD_FOLDER from ARIEO_CUR_PACKAGE_BUILD_FOLDER if available
+        if 'ARIEO_CUR_PACKAGE_BUILD_FOLDER' in env:
+            env['ARIEO_BUILDENV_BUILD_FOLDER'] = env['ARIEO_CUR_PACKAGE_BUILD_FOLDER']
+            print(f"  Setting ARIEO_BUILDENV_BUILD_FOLDER: {env['ARIEO_BUILDENV_BUILD_FOLDER']}")
         
         print(f"\n=== Build Stage ===")
         for idx, build_command in enumerate(build_commands, 1):

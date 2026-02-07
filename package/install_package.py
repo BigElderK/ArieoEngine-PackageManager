@@ -37,9 +37,6 @@ def install_package(src_path, package_data, package_name, package_version, env):
     try:
         os.chdir(src_path)
         
-        # Add source path to environment for cross-platform access
-        env['ARIEO_PACKAGE_SOURCE_DIR'] = str(src_path)
-        
         print(f"\n=== Install Stage ===")
         for idx, install_command in enumerate(install_commands, 1):
             # Expand environment variables for cross-platform compatibility

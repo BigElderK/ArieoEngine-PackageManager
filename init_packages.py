@@ -332,6 +332,21 @@ def generate_package_resolve_file(install_order, packages_data, packages_src_fol
                     "type": "private",
                     "name": base_env_var_name + '_BUILD_FOLDER',
                     "value": str((Path(packages_build_folder).resolve() / pkg_info['folder_name']))
+                },
+                {
+                    "type": "private",
+                    "name": 'ARIEO_CUR_PACKAGE_SOURCE_FOLDER',
+                    "value": str(pkg_info['path'].resolve())
+                },
+                {
+                    "type": "private",
+                    "name": 'ARIEO_CUR_PACKAGE_BUILD_FOLDER',
+                    "value": str((Path(packages_build_folder).resolve() / pkg_info['folder_name']))
+                },
+                {
+                    "type": "private",
+                    "name": 'ARIEO_CUR_PACKAGE_INSTALL_FOLDER',
+                    "value": str((Path(packages_install_folder).resolve() / pkg_info['folder_name']))
                 }
             ],
             "build_commands": arieo_data.get('build_commands', []),
