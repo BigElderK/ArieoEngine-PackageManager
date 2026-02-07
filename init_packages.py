@@ -294,6 +294,13 @@ def generate_package_resolve_file(install_order, packages_data, packages_src_fol
         "packages_src_folder": str(Path(packages_src_folder).resolve()),
         "packages_install_folder": str(Path(packages_install_folder).resolve()),
         "packages_build_folder": str(Path(packages_build_folder).resolve()),
+        "environment_variables": [
+            {
+                "type": "public",
+                "name": "ARIEO_PACKAGE_ROOT_INSTALL_FOLDER",
+                "value": str(Path(packages_install_folder).resolve())
+            }
+        ],
         "install_order": [],
         "packages": {}
     }

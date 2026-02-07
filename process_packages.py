@@ -154,6 +154,15 @@ def process_packages_from_resolve(package_resolve_file_path, package_filter=None
     install_order = resolve_data.get('install_order', [])
     packages = resolve_data.get('packages', {})
     
+    # Extract root-level environment variables
+    root_env_vars = {}
+    root_env_vars_list = resolve_data.get('environment_variables', [])
+    for env_var in root_env_vars_list:
+        env_name = env_var.get('name')
+        env_value = env_var.get('value')
+        if env_name and env_value:
+            root_env_vars[env_name] = env_value
+    
     # Filter packages if requested
     if package_filter:
         # Check if requested packages exist
@@ -179,7 +188,8 @@ def process_packages_from_resolve(package_resolve_file_path, package_filter=None
     install_order.sort(key=lambda pkg_name: packages[pkg_name].get('build_index', 999))
     
     # Gather all public environment variables from all packages
-    public_env_vars_map = {}
+    # Start with root-level environment variables
+    public_env_vars_map = root_env_vars.copy()
     for pkg_name, pkg_info in packages.items():
         environment_variables = pkg_info.get('environment_variables', [])
         for env_var in environment_variables:
