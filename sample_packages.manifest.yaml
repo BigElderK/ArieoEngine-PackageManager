@@ -4,13 +4,13 @@ packages_build_folder: ./packages/build
 
 packages:
   00_build:
-    - git_url: https://github.com/BigElderK/ArieoEngine-BuildEnv.git
+    - git_url: https://github.com/BigElderK/Arieo-BuildEnv.git
       tag: main
 
   01_third_parties:
-    - git_url: https://github.com/BigElderK/ArieoEngine-ThirdParties.git
+    - git_url: https://github.com/BigElderK/Arieo-ThirdParties.git
       tag: main
 
   02_core:
-    - git_url: https://github.com/BigElderK/ArieoEngine-Core.git
+    - git_url: https://github.com/BigElderK/Arieo-Core.git
       tag: main
