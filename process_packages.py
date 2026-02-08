@@ -530,13 +530,28 @@ def generate_env_combinations(env_vars):
     if not env_vars:
         return [{}]
     
+    # Define preferred order for build types
+    build_type_order = ['Release', 'RelWithDebInfo', 'Debug', 'MinSizeRel']
+    
     # Separate variables with single values from those with multiple values
     multi_value_vars = {}
     single_value_vars = {}
     
     for key, value in env_vars.items():
         if isinstance(value, list):
-            multi_value_vars[key] = value
+            # Sort BUILD_TYPE values according to preferred order
+            if 'BUILD_TYPE' in key.upper():
+                sorted_value = []
+                for build_type in build_type_order:
+                    if build_type in value:
+                        sorted_value.append(build_type)
+                # Add any remaining values not in the preferred order
+                for v in value:
+                    if v not in sorted_value:
+                        sorted_value.append(v)
+                multi_value_vars[key] = sorted_value
+            else:
+                multi_value_vars[key] = value
         else:
             single_value_vars[key] = value
     
