@@ -300,17 +300,15 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
             f.write(f"    BUILD_ALWAYS TRUE\n")
             f.write(f"    \n")
             
-            # Collect all environment variables for CMAKE_CACHE_ARGS
+            # Collect environment variables for CMAKE_CACHE_ARGS
+            # Only include private variables since public ones are set via CONFIGURE_ENVIRONMENT_MODIFICATION
             all_env_vars_for_cache = {}
-            all_public_var_names = set(all_public_vars.keys())
             
             # Add cmake_presets_file if available
             if cmake_presets_file:
                 all_env_vars_for_cache['CMAKE_PRESETS_FILE'] = cmake_presets_file
             
-            # Add root environment variables (use ${} for public, literal for private)
-            for env_name, env_value in root_public_env_vars.items():
-                all_env_vars_for_cache[env_name] = f"${{{env_name}}}"
+            # Add only PRIVATE environment variables (root, dependency, and package)
             for env_name, env_value in root_private_env_vars.items():
                 # Convert paths to use forward slashes for cross-platform compatibility
                 if isinstance(env_value, str) and ('\\' in env_value or ':' in env_value):
@@ -320,13 +318,6 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
                         pass
                 all_env_vars_for_cache[env_name] = env_value
             
-            # Add public environment variables from dependency packages (use ${})
-            for env_name, env_value in dep_public_env_vars.items():
-                all_env_vars_for_cache[env_name] = f"${{{env_name}}}"
-            
-            # Add package-specific environment variables (use ${} for public, literal for private)
-            for env_name, env_value in package_public_env_vars.items():
-                all_env_vars_for_cache[env_name] = f"${{{env_name}}}"
             for env_name, env_value in package_private_env_vars.items():
                 # Convert paths to use forward slashes
                 if isinstance(env_value, str) and ('\\' in env_value or ':' in env_value):
@@ -336,7 +327,7 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
                         pass
                 all_env_vars_for_cache[env_name] = env_value
             
-            # Pass environment variables as CMAKE_CACHE_ARGS to ensure they're available during configuration
+            # Pass private environment variables as CMAKE_CACHE_ARGS
             if all_env_vars_for_cache:
                 f.write(f"    # CMAKE_CACHE_ARGS are passed to the configuration stage (cmake command)\n")
                 f.write(f"    CMAKE_CACHE_ARGS\n")
@@ -360,6 +351,18 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
             f.write(f"        -DCMAKE_BUILD_TYPE=${{CMAKE_BUILD_TYPE}}\n")
             f.write(f"        -DCMAKE_INSTALL_PREFIX={abs_install}\n")
             f.write(f"        -DCMAKE_CONFIGURE_PRESET=${{CMAKE_CONFIGURE_PRESET}}\n")
+            
+            # Add CONFIGURE_ENVIRONMENT_MODIFICATION for packages that need preset environment variables
+            # Collect all public environment variables from root and dependencies
+            env_mod_vars = {}
+            env_mod_vars.update(root_public_env_vars)
+            env_mod_vars.update(dep_public_env_vars)
+            
+            # Only add CONFIGURE_ENVIRONMENT_MODIFICATION if there are variables to set
+            if env_mod_vars:
+                f.write(f"\n    CONFIGURE_ENVIRONMENT_MODIFICATION\n")
+                for env_name in sorted(env_mod_vars.keys()):
+                    f.write(f"        {env_name}=set:${{{env_name}}}\n")
             
             # Add PATCH_COMMAND to copy cmake_presets_file if present
             if cmake_presets_file:
