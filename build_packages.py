@@ -4,6 +4,7 @@ Build packages using CMake ExternalProject_Add system
 """
 
 import argparse
+import json
 import subprocess
 import sys
 import yaml
@@ -40,7 +41,7 @@ def run_command(cmd, cwd=None, env=None, check=True):
     return result
 
 
-def build_packages(cmake_file, build_folder, presets, build_types, packages):
+def build_packages(cmake_file, build_folder, presets, build_types, packages, packages_info):
     """
     Build specified packages with given presets and build types
     
@@ -50,6 +51,7 @@ def build_packages(cmake_file, build_folder, presets, build_types, packages):
         presets: List of CMake presets (e.g., ["windows.x86_64"])
         build_types: List of build types (e.g., ["Debug", "Release"])
         packages: List of package names to build (e.g., ["Arieo-Core"])
+        packages_info: Dict containing package information from packages_resolve.json
     """
     cmake_file = Path(cmake_file).resolve()
     source_dir = cmake_file.parent
@@ -77,7 +79,7 @@ def build_packages(cmake_file, build_folder, presets, build_types, packages):
             
             build_dir = build_folder / preset / build_type
             
-            # Configure CMake SuperBuild
+            # Configure CMake SuperBuild (super-build doesn't use --preset, only passes preset to sub-projects)
             configure_cmd = [
                 "cmake",
                 "-G", "Ninja",
@@ -103,6 +105,7 @@ def build_packages(cmake_file, build_folder, presets, build_types, packages):
                 build_cmd = [
                     "cmake",
                     "--build", str(build_dir),
+                    "--config", build_type,
                     "--target", package
                 ]
                 
@@ -190,15 +193,33 @@ Example usage:
         print("Error: 'packages_build_folder' not found in manifest")
         sys.exit(1)
     
+    # Get packages_resolve_file from manifest
+    packages_resolve_file_rel = manifest.get('packages_resolve_file', 'packages/packages_resolve.json')
+    
     cmake_file_rel = manifest['packages_cmake_list_file']
     build_folder_rel = manifest['packages_build_folder']
     
     # Resolve path relative to manifest file location
     cmake_file = (manifest_path.parent / cmake_file_rel).resolve()
     build_folder = (manifest_path.parent / build_folder_rel).resolve()
+    packages_resolve_file = (manifest_path.parent / packages_resolve_file_rel).resolve()
     
     print(f"CMake file from manifest: {cmake_file}")
     print(f"Build folder from manifest: {build_folder}")
+    print(f"Packages resolve file: {packages_resolve_file}")
+    
+    # Load packages_resolve.json to get package information
+    packages_info = {}
+    if packages_resolve_file.exists():
+        try:
+            with open(packages_resolve_file, 'r') as f:
+                resolve_data = json.load(f)
+                packages_info = resolve_data.get('packages', {})
+                print(f"Loaded {len(packages_info)} packages from resolve file")
+        except Exception as e:
+            print(f"Warning: Failed to read packages resolve file: {e}")
+    else:
+        print(f"Warning: Packages resolve file not found: {packages_resolve_file}")
     
     # Default to Release if no build types specified
     build_types = args.build_types if args.build_types else ["Release"]
@@ -208,7 +229,8 @@ Example usage:
         build_folder=build_folder,
         presets=args.presets,
         build_types=build_types,
-        packages=args.packages
+        packages=args.packages,
+        packages_info=packages_info
     )
 
 
