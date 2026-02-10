@@ -138,13 +138,37 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
                 f.write(f'set({env_name} \"{env_value}\" CACHE STRING \"{env_name} from package manifest\")\n')
             f.write("\n")
         
-        # Build dependency map
+        # Build dependency map with recursive dependencies
         dependency_map = {}
-        for pkg_name in install_order:
+        
+        def gather_recursive_deps(pkg_name, visited=None):
+            """Recursively collect all dependencies for a package"""
+            if visited is None:
+                visited = set()
+            
+            result = []
+            if pkg_name not in packages:
+                return result
+            
             pkg_info = packages[pkg_name]
             dependencies = pkg_info.get('dependencies', [])
-            dep_names = [dep.get('name') for dep in dependencies if dep.get('name') in install_order]
-            dependency_map[pkg_name] = dep_names
+            
+            for dep in dependencies:
+                dep_name = dep.get('name')
+                if dep_name and dep_name in install_order and dep_name not in visited:
+                    visited.add(dep_name)
+                    # Add dependencies of this dependency first (depth-first)
+                    result.extend(gather_recursive_deps(dep_name, visited))
+                    # Then add the dependency itself
+                    if dep_name not in result:
+                        result.append(dep_name)
+            
+            return result
+        
+        for pkg_name in install_order:
+            # Get all recursive dependencies
+            all_deps = gather_recursive_deps(pkg_name)
+            dependency_map[pkg_name] = all_deps
         
         # Write ExternalProject_Add for each package
         for idx, pkg_name in enumerate(install_order, 1):
@@ -290,8 +314,10 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
             
             if deps:
                 f.write(f"    # Dependencies\n")
-                f.write(f"    DEPENDS {' '.join(deps)}\n")
-                f.write(f"    \n")
+                f.write(f"    DEPENDS")
+                for dep in deps:
+                    f.write(f"\n        {dep}")
+                f.write(f"\n    \n")
             
             # Update options
             f.write(f"    # Update options\n")
@@ -348,8 +374,12 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
             if cmake_presets_file:
                 f.write(f"        --preset=${{CMAKE_CONFIGURE_PRESET}}\n")
             
+            # Generate variable name for this package's install folder
+            pkg_var_name = pkg_name.upper().replace('-', '_').replace('ARIEOENGINE_', '').replace('ARIEO_', '')
+            install_folder_var = f'ARIEO_{pkg_var_name}_PACKAGE_INSTALL_FOLDER'
+            
             f.write(f"        -DCMAKE_BUILD_TYPE=${{CMAKE_BUILD_TYPE}}\n")
-            f.write(f"        -DCMAKE_INSTALL_PREFIX={abs_install}\n")
+            f.write(f"        -DCMAKE_INSTALL_PREFIX=${{{install_folder_var}}}\n")
             f.write(f"        -DCMAKE_CONFIGURE_PRESET=${{CMAKE_CONFIGURE_PRESET}}\n")
             
             # Add CONFIGURE_ENVIRONMENT_MODIFICATION for packages that need preset environment variables
@@ -382,7 +412,9 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
             
             # Add PATCH_COMMAND to copy cmake_presets_file if present
             if cmake_presets_file:
-                f.write(f"\n    PATCH_COMMAND ${{CMAKE_COMMAND}} -E copy {cmake_presets_file} <SOURCE_DIR>/CMakeUserPresets.json\n")
+                # Replace $ENV{VAR} with ${VAR} for CMake variable syntax
+                cmake_presets_path = cmake_presets_file.replace('$ENV{', '${')
+                f.write(f"\n    PATCH_COMMAND ${{CMAKE_COMMAND}} -E copy {cmake_presets_path} <SOURCE_DIR>/CMakeUserPresets.json\n")
             
             # Add BUILD_COMMAND if defined in arieo_package.json
             build_commands = pkg_info.get('build_commands', [])
@@ -713,6 +745,15 @@ def generate_package_resolve_file(install_order, packages_data, packages_src_fol
         # Get the package name from arieo_package.json, fallback to repo name
         package_name = arieo_data.get('name', pkg_name)
         
+        # Check if package has cmake_presets_file
+        cmake_presets_file = arieo_data.get('cmake_presets_file', '')
+        
+        # Build install folder path - append ${CMAKE_CONFIGURE_PRESET} if cmake_presets_file exists
+        if cmake_presets_file:
+            install_folder_path = str((Path(packages_install_folder).resolve() / pkg_info['folder_name'])) + "/${CMAKE_CONFIGURE_PRESET}"
+        else:
+            install_folder_path = str((Path(packages_install_folder).resolve() / pkg_info['folder_name']))
+        
         package_entry = {
             "build_index": idx,
             "name": package_name,
@@ -720,14 +761,14 @@ def generate_package_resolve_file(install_order, packages_data, packages_src_fol
             "git_url": pkg_info.get('git_url', ''),
             "tag": pkg_info.get('tag', ''),
             "source_folder": str(pkg_info['path'].resolve()),
-            "install_folder": str((Path(packages_install_folder).resolve() / pkg_info['folder_name'])),
+            "install_folder": install_folder_path,
             "build_folder": str((Path(packages_build_folder).resolve() / pkg_info['folder_name'])),
-            "cmake_presets_file": arieo_data.get('cmake_presets_file', ''),
+            "cmake_presets_file": cmake_presets_file,
             "environment_variables": [
                 {
                     "type": "public",
                     "name": 'ARIEO_' + pkg_var_name + '_PACKAGE_INSTALL_FOLDER',
-                    "value": str((Path(packages_install_folder).resolve() / pkg_info['folder_name']))
+                    "value": install_folder_path
                 },
                 {
                     "type": "private",
@@ -752,7 +793,7 @@ def generate_package_resolve_file(install_order, packages_data, packages_src_fol
                 {
                     "type": "private",
                     "name": 'CUR_ARIEO_PACKAGE_INSTALL_FOLDER',
-                    "value": str((Path(packages_install_folder).resolve() / pkg_info['folder_name']))
+                    "value": install_folder_path
                 },
                 {
                     "type": "private",
