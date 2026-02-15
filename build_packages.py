@@ -13,6 +13,34 @@ import platform
 from pathlib import Path
 
 
+def cleanup_empty_dirs(root_path):
+    """
+    Recursively remove empty directories from root_path.
+    Walks bottom-up to ensure nested empty dirs are removed.
+    
+    Args:
+        root_path: Path to the root directory to clean
+    """
+    root = Path(root_path)
+    if not root.exists():
+        return
+    
+    removed_count = 0
+    # Walk bottom-up so we can remove nested empty dirs
+    for dirpath in sorted(root.rglob('*'), key=lambda p: len(p.parts), reverse=True):
+        if dirpath.is_dir():
+            try:
+                # Check if directory is empty
+                if not any(dirpath.iterdir()):
+                    dirpath.rmdir()
+                    removed_count += 1
+            except OSError:
+                pass  # Directory not empty or permission denied
+    
+    if removed_count > 0:
+        print(f"Cleaned up {removed_count} empty directories from {root}")
+
+
 def run_command(cmd, cwd=None, env=None, check=True):
     """
     Run a command and return the result
@@ -172,6 +200,12 @@ def build_packages(cmake_file, build_folder, presets, build_types, packages, pac
     print(f"\n{'='*80}")
     print(f"✓ All packages built successfully!")
     print(f"{'='*80}\n")
+    
+    # Cleanup empty directories from install folder
+    install_folder = cmake_file.parent / "install"
+    if install_folder.exists():
+        print(f"Cleaning up empty directories...")
+        cleanup_empty_dirs(install_folder)
 
 
 def main():
