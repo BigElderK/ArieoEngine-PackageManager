@@ -117,7 +117,7 @@ def parse_env_vars(envs=None, env_file=None, clear_env=False):
     return env
 
 
-def build_packages(cmake_file, build_folder, presets, build_types, packages, packages_info, packages_output_folder, env=None):
+def build_packages(cmake_file, build_folder, presets, build_types, packages, packages_info, packages_install_folder, env=None):
     """
     Build specified packages with given presets and build types
     
@@ -128,7 +128,7 @@ def build_packages(cmake_file, build_folder, presets, build_types, packages, pac
         build_types: List of build types (e.g., ["Debug", "Release"])
         packages: List of package names to build (e.g., ["Arieo-Core"])
         packages_info: Dict containing package information from packages_resolve.json
-        packages_output_folder: Output folder path for build outputs
+        packages_install_folder: Install folder path for package outputs
         env: Environment variables dict to use for subprocess calls
     """
     cmake_file = Path(cmake_file).resolve()
@@ -202,12 +202,12 @@ def build_packages(cmake_file, build_folder, presets, build_types, packages, pac
     print(f"✓ All packages built successfully!")
     print(f"{'='*80}\n")
 
-    # Cleanup empty directories from output folder
-    if packages_output_folder:
-        output_folder = Path(packages_output_folder)
-        if output_folder.exists():
+    # Cleanup empty directories from install folder
+    if packages_install_folder:
+        install_folder = Path(packages_install_folder)
+        if install_folder.exists():
             print(f"Cleaning up empty directories...")
-            cleanup_empty_dirs(output_folder)
+            cleanup_empty_dirs(install_folder)
 
 
 def main():
@@ -334,13 +334,13 @@ Example usage:
     
     # Load packages_resolve.json to get package information
     packages_info = {}
-    packages_output_folder = None
+    packages_install_folder = None
     if packages_resolve_file.exists():
         try:
             with open(packages_resolve_file, 'r') as f:
                 resolve_data = json.load(f)
                 packages_info = resolve_data.get('packages', {})
-                packages_output_folder = resolve_data.get('packages_output_folder')
+                packages_install_folder = resolve_data.get('packages_install_folder')
                 print(f"Loaded {len(packages_info)} packages from resolve file")
         except Exception as e:
             print(f"Warning: Failed to read packages resolve file: {e}")
@@ -379,7 +379,7 @@ Example usage:
         build_types=build_types,
         packages=args.packages,
         packages_info=packages_info,
-        packages_output_folder=packages_output_folder,
+        packages_install_folder=packages_install_folder,
         env=env
     )
 
