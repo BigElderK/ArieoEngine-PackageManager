@@ -255,12 +255,12 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
             for dep_pkg in deps:
                 gather_dep_env_vars(dep_pkg)
             
-            # Check if package has arieo_package.json to determine build system
+            # Check if package has ArieoPackage.yaml to determine build system
             source_path = Path(source_folder) if source_folder else None
-            has_arieo_package = source_path and (source_path / "arieo_package.json").exists()
+            has_arieo_package = source_path and (source_path / "ArieoPackage.yaml").exists()
             
             if not has_arieo_package:
-                error_msg = f"✗ Error: arieo_package.json not found in package '{pkg_name}' at {source_path}"
+                error_msg = f"✗ Error: ArieoPackage.yaml not found in package '{pkg_name}' at {source_path}"
                 print(error_msg)
                 sys.exit(1)
             
@@ -421,7 +421,7 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
                 cmake_presets_path = cmake_presets_file.replace('$ENV{', '${')
                 f.write(f"\n    PATCH_COMMAND ${{CMAKE_COMMAND}} -E copy {cmake_presets_path} <SOURCE_DIR>/CMakeUserPresets.json\n")
             
-            # Add BUILD_COMMAND if defined in arieo_package.json
+            # Add BUILD_COMMAND if defined in ArieoPackage.yaml
             build_commands = pkg_info.get('build_commands', [])
             if build_commands:
                 # First command goes on same line as BUILD_COMMAND
@@ -430,7 +430,7 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
                 for cmd in build_commands[1:]:
                     f.write(f"    COMMAND       {cmd}\n")
             
-            # Add INSTALL_COMMAND if defined in arieo_package.json
+            # Add INSTALL_COMMAND if defined in ArieoPackage.yaml
             install_commands = pkg_info.get('install_commands', [])
             if install_commands:
                 # First command goes on same line as INSTALL_COMMAND
@@ -539,9 +539,9 @@ def download_package_from_git(git_url, tag, dest_folder, category=None):
         sys.exit(1)
 
 
-def read_arieo_package_json(package_path):
+def read_arieo_package_yaml(package_path):
     """
-    Read arieo_package.json from a package folder
+    Read ArieoPackage.yaml from a package folder
     
     Args:
         package_path: Path to the package folder
@@ -549,17 +549,17 @@ def read_arieo_package_json(package_path):
     Returns:
         dict: Package data or None if not found
     """
-    arieo_package_json_path = Path(package_path) / "arieo_package.json"
+    arieo_package_yaml_path = Path(package_path) / "ArieoPackage.yaml"
     
-    if not arieo_package_json_path.exists():
-        print(f"  Warning: arieo_package.json not found in {package_path}")
+    if not arieo_package_yaml_path.exists():
+        print(f"  Warning: ArieoPackage.yaml not found in {package_path}")
         return None
     
     try:
-        with open(arieo_package_json_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        with open(arieo_package_yaml_path, 'r', encoding='utf-8') as f:
+            return yaml.safe_load(f) or {}
     except Exception as e:
-        error_msg = f"✗ Error: Failed to read arieo_package.json in {package_path}: {e}"
+        error_msg = f"✗ Error: Failed to read ArieoPackage.yaml in {package_path}: {e}"
         print(error_msg)
         sys.exit(1)
 
@@ -747,7 +747,7 @@ def generate_package_resolve_file(install_order, packages_data, packages_src_fol
         # e.g., "Arieo-BuildEnv" -> "ARIEO_BUILDENV_PACKAGE_INSTALL_FOLDER"
         pkg_var_name = pkg_name.upper().replace('-', '_').replace('ARIEOENGINE_', '').replace('ARIEO_', '')
         
-        # Get the package name from arieo_package.json, fallback to repo name
+        # Get the package name from ArieoPackage.yaml, fallback to repo name
         package_name = arieo_data.get('name', pkg_name)
         
         # Check if package has cmake_presets_file
@@ -842,16 +842,31 @@ def init_all_packages(manifest_file_path=None):
     packages_build_folder = expand_manifest_path(manifest.get('packages_build_folder', './_build'))
     packages_resolve_file = expand_manifest_path(manifest.get('packages_resolve_file', str(Path(packages_install_folder) / 'package.lock.json')))
     packages_cmake_list_file = expand_manifest_path(manifest.get('packages_cmake_list_file'))
-    packages_dict = manifest.get('packages', {})
+    packages_raw = manifest.get('packages', {})
     
-    # Count total packages across all categories
-    total_packages = sum(len(pkg_list) for pkg_list in packages_dict.values())
+    # Support both old format (dict with categories) and new format (flat list)
+    # New format: packages is a list, category comes from ArieoPackage.yaml
+    # Old format: packages is a dict with category keys
+    if isinstance(packages_raw, list):
+        # New flat list format
+        packages_list = packages_raw
+        use_flat_list = True
+    else:
+        # Old dict format - flatten to list
+        packages_list = []
+        for category, pkg_list in packages_raw.items():
+            for pkg in pkg_list:
+                pkg['_manifest_category'] = category  # Store category from manifest temporarily
+                packages_list.append(pkg)
+        use_flat_list = False
+    
+    total_packages = len(packages_list)
     
     if total_packages == 0:
         print("No packages to download")
         return
     
-    print(f"\n{'='*60}")
+    print(f"\\n{'='*60}")
     print(f"STEP 1: Downloading {total_packages} package(s)")
     print(f"{'='*60}")
     
@@ -859,62 +874,100 @@ def init_all_packages(manifest_file_path=None):
     packages_data = {}
     pkg_counter = 0
     
-    for category, package_list in packages_dict.items():
-        for package in package_list:
-            pkg_counter += 1
-            print(f"\nDownloading package {pkg_counter}/{total_packages} [Category: {category}]")
-            git_url = package.get('git_url')
-            git_spec = package.get('git')
-            local_path_raw = package.get('local')
-            tag = package.get('tag', 'main')
-            
-            # Parse git@tag format if present
-            if git_spec:
-                if '@' in git_spec:
-                    git_url, tag = git_spec.rsplit('@', 1)
-                else:
-                    git_url = git_spec
-                    tag = 'main'
-            
-            if local_path_raw:
-                local_path = Path(expand_manifest_path(local_path_raw))
-                if not local_path.is_absolute():
-                    local_path = (manifest_dir / local_path).resolve()
-                if not local_path.exists():
-                    error_msg = f"✗ Error: Local package path not found: {local_path}"
-                    print(error_msg)
-                    sys.exit(1)
-
-                repo_name = local_path.name
-                repo_folder_name = f"{category}/{repo_name}" if category else repo_name
-                package_path = local_path
-                git_url = None
-                tag = 'local'
-                print(f"  Using local package path: {local_path}")
+    for package in packages_list:
+        pkg_counter += 1
+        git_url = package.get('git_url')
+        git_spec = package.get('git')
+        local_path_raw = package.get('local')
+        tag = package.get('tag', 'main')
+        
+        # Parse git@tag format if present
+        if git_spec:
+            if '@' in git_spec:
+                git_url, tag = git_spec.rsplit('@', 1)
             else:
-                if not git_url:
-                    error_msg = f"✗ Error: Package #{pkg_counter} missing git_url or local"
-                    print(error_msg)
-                    sys.exit(1)
+                git_url = git_spec
+                tag = 'main'
+        
+        if local_path_raw:
+            local_path = Path(expand_manifest_path(local_path_raw))
+            if not local_path.is_absolute():
+                local_path = (manifest_dir / local_path).resolve()
+            if not local_path.exists():
+                error_msg = f"✗ Error: Local package path not found: {local_path}"
+                print(error_msg)
+                sys.exit(1)
 
-                # Download package with category subfolder
+            repo_name = local_path.name
+            package_path = local_path
+            git_url = None
+            tag = 'local'
+            
+            # Read ArieoPackage.yaml first to get category
+            arieo_data = read_arieo_package_yaml(package_path)
+            if use_flat_list:
+                # Get category from ArieoPackage.yaml
+                category = arieo_data.get('category', '') if arieo_data else ''
+            else:
+                # Get category from manifest (old format)
+                category = package.get('_manifest_category', '')
+            
+            repo_folder_name = f"{category}/{repo_name}" if category else repo_name
+            print(f"\\nProcessing package {pkg_counter}/{total_packages}: {repo_name} [Category: {category}]")
+            print(f"  Using local package path: {local_path}")
+        else:
+            if not git_url:
+                error_msg = f"✗ Error: Package #{pkg_counter} missing git_url or local"
+                print(error_msg)
+                sys.exit(1)
+
+            # For git packages, download first then read ArieoPackage.yaml
+            # Get category from manifest for old format, or download first and read for new format
+            if use_flat_list:
+                # Download to temp location first to read category
+                result = download_package_from_git(git_url, tag, packages_src_folder, '')
+                temp_folder_name = result['folder_name']
+                repo_name = result['repo_name']
+                package_path = Path(packages_src_folder) / temp_folder_name
+                
+                # Read ArieoPackage.yaml to get category
+                arieo_data = read_arieo_package_yaml(package_path)
+                category = arieo_data.get('category', '') if arieo_data else ''
+                
+                # Move to correct category folder if needed
+                if category:
+                    new_folder_name = f"{category}/{result['folder_name'].split('/')[-1]}"
+                    new_path = Path(packages_src_folder) / new_folder_name
+                    if package_path != new_path:
+                        new_path.parent.mkdir(parents=True, exist_ok=True)
+                        if new_path.exists():
+                            import shutil
+                            shutil.rmtree(new_path)
+                        package_path.rename(new_path)
+                        package_path = new_path
+                    repo_folder_name = new_folder_name
+                else:
+                    repo_folder_name = temp_folder_name
+            else:
+                # Old format - category from manifest
+                category = package.get('_manifest_category', '')
                 result = download_package_from_git(git_url, tag, packages_src_folder, category)
-                repo_folder_name = result['folder_name']  # e.g., "00_build/Arieo-BuildEnv-main"
-                repo_name = result['repo_name']  # e.g., "Arieo-BuildEnv"
+                repo_folder_name = result['folder_name']
+                repo_name = result['repo_name']
                 package_path = Path(packages_src_folder) / repo_folder_name
+                arieo_data = read_arieo_package_yaml(package_path)
             
-            # Read arieo_package.json
-            arieo_data = read_arieo_package_json(package_path)
-            
-            packages_data[repo_name] = {
-                'git_url': git_url,
-                'tag': tag,
-                'path': package_path,
-                'folder_name': repo_folder_name,  # Includes category in path
-                'arieo_package_data': arieo_data
-            }
+            print(f"\\nProcessing package {pkg_counter}/{total_packages}: {repo_name} [Category: {category}]")
+        
+        packages_data[repo_name] = {
+            'git_url': git_url,
+            'tag': tag,
+            'path': package_path,
+            'folder_name': repo_folder_name,  # Includes category in path
+            'arieo_package_data': arieo_data
+        }
     
-    print(f"\n{'='*60}")
+    print(f"\\n{'='*60}")
     print(f"STEP 2: Resolving dependencies")
     print(f"{'='*60}")
     
