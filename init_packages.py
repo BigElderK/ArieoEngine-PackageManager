@@ -180,15 +180,17 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
             source_folder = pkg_info.get('source_folder')
             git_url = pkg_info.get('git_url')
             
-            # Build directory (use actual path from resolve file)
+            # Build directory (use actual path from resolve file, keep cmake variables as-is)
             build_folder = pkg_info.get('build_folder')
             if build_folder:
-                abs_build = Path(build_folder).resolve().as_posix()
+                # Don't resolve - build_folder may contain ${CMAKE_CONFIGURE_PRESET}
+                abs_build = build_folder
             
-            # Install directory (use actual path from resolve file)
+            # Install directory (use actual path from resolve file, keep cmake variables as-is)
             install_folder = pkg_info.get('install_folder')
             if install_folder:
-                abs_install = Path(install_folder).resolve().as_posix()
+                # Don't resolve - install_folder may contain ${CMAKE_CONFIGURE_PRESET}
+                abs_install = install_folder
             
             # Dependencies
             deps = dependency_map.get(pkg_name, [])
@@ -304,7 +306,7 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
             
             if build_folder:
                 f.write(f"    # Build directory\n")
-                f.write(f"    BINARY_DIR \"{abs_build}/${{CMAKE_CONFIGURE_PRESET}}/${{CMAKE_BUILD_TYPE}}\"\n")
+                f.write(f"    BINARY_DIR \"{abs_build}\"\n")
             
             if install_folder:
                 f.write(f"    # Install directory\n")
@@ -380,8 +382,8 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
                 f.write(f"        --preset=${{CMAKE_CONFIGURE_PRESET}}\n")
             
             # Generate variable name for this package's install folder
-            pkg_var_name = pkg_name.upper().replace('-', '_').replace('ARIEOENGINE_', '').replace('ARIEO_', '')
-            install_folder_var = f'ARIEO_{pkg_var_name}_PACKAGE_INSTALL_FOLDER'
+            package_name = pkg_name.upper().replace('-', '_').replace('ARIEOENGINE_', '').replace('ARIEO_', '')
+            install_folder_var = f'ARIEO_{package_name}_PACKAGE_INSTALL_FOLDER'
             
             f.write(f"        -DCMAKE_BUILD_TYPE=${{CMAKE_BUILD_TYPE}}\n")
             f.write(f"        -DCMAKE_INSTALL_PREFIX=${{{install_folder_var}}}\n")
@@ -402,8 +404,8 @@ def generate_cmake_file(output_path, package_resolve_file_path, package_filter=N
                     if dep_pkg in packages:
                         # Generate variable name from package name
                         dep_var_name = dep_pkg.upper().replace('-', '_').replace('ARIEOENGINE_', '').replace('ARIEO_', '')
-                        install_var_name = f'ARIEO_{dep_var_name}_PACKAGE_INSTALL_FOLDER'
-                        prefix_path_entries.append(f'${{{install_var_name}}}')
+                        output_var_name = f'ARIEO_{dep_var_name}_PACKAGE_INSTALL_FOLDER'
+                        prefix_path_entries.append(f'${{{output_var_name}}}')
             
             # Only add CONFIGURE_ENVIRONMENT_MODIFICATION if there are variables to set
             if env_mod_vars or prefix_path_entries:
@@ -715,7 +717,7 @@ def generate_package_resolve_file(install_order, packages_data, packages_src_fol
         packages_data: Dict mapping package name to package info
         packages_src_folder: Source folder path
         packages_install_folder: Output folder path
-        packages_build_folder: Build folder path
+        packages_build_folder: Output folder path for build outputs
         package_resolve_file_path: Path where to write the resolve file
         
     Returns:
@@ -723,16 +725,10 @@ def generate_package_resolve_file(install_order, packages_data, packages_src_fol
     """
     resolve_data = {
         "generated_at": subprocess.run(['date', '/T'], capture_output=True, text=True, shell=True).stdout.strip() if os.name == 'nt' else subprocess.run(['date'], capture_output=True, text=True).stdout.strip(),
-        "packages_src_folder": str(Path(packages_src_folder).resolve()),
-        "packages_install_folder": str(Path(packages_install_folder).resolve()),
-        "packages_build_folder": str(Path(packages_build_folder).resolve()),
-        "environment_variables": [
-            {
-                "type": "public",
-                "name": "ARIEO_PACKAGE_ROOT_INSTALL_FOLDER",
-                "value": str(Path(packages_install_folder).resolve())
-            }
-        ],
+        "packages_src_folder": Path(packages_src_folder).resolve().as_posix(),
+        "packages_install_folder": Path(packages_install_folder).resolve().as_posix(),
+        "packages_build_folder": Path(packages_build_folder).resolve().as_posix(),
+        "environment_variables": [],
         "install_order": [],
         "packages": {}
     }
@@ -741,23 +737,44 @@ def generate_package_resolve_file(install_order, packages_data, packages_src_fol
     for idx, pkg_name in enumerate(install_order, 1):
         pkg_info = packages_data[pkg_name]
         arieo_data = pkg_info.get('arieo_package_data') or {}
-        folder_name = pkg_info['folder_name']
-        
-        # Generate environment variable names from package name (without tag)
-        # e.g., "Arieo-BuildEnv" -> "ARIEO_BUILDENV_PACKAGE_INSTALL_FOLDER"
-        pkg_var_name = pkg_name.upper().replace('-', '_').replace('ARIEOENGINE_', '').replace('ARIEO_', '')
         
         # Get the package name from ArieoPackage.yaml, fallback to repo name
         package_name = arieo_data.get('name', pkg_name)
         
-        # Check if package has cmake_presets_file
+        # Generate normalized variable name from package name
+        pkg_var_name = package_name.upper().replace('-', '_').replace('ARIEOENGINE_', '').replace('ARIEO_', '')
+        
         cmake_presets_file = arieo_data.get('cmake_presets_file', '')
         
-        # Build install folder path - append ${CMAKE_CONFIGURE_PRESET} if cmake_presets_file exists
-        if cmake_presets_file:
-            install_folder_path = str((Path(packages_install_folder).resolve() / pkg_info['folder_name'])) + "/${CMAKE_CONFIGURE_PRESET}"
-        else:
-            install_folder_path = str((Path(packages_install_folder).resolve() / pkg_info['folder_name']))
+        # Get category from ArieoPackage.yaml or derive from folder structure
+        folder_name_path = Path(pkg_info['folder_name'])
+        category = arieo_data.get('category', '')
+        if not category:
+            category = folder_name_path.parent.as_posix() if folder_name_path.parent.as_posix() != '.' else ''
+        
+        # Resolve build_folder from ArieoPackage.yaml
+        build_folder_yaml = arieo_data.get('build_folder', '')
+        if not build_folder_yaml:
+            error_msg = f"✗ FATAL: 'build_folder' is not set in ArieoPackage.yaml for package '{package_name}' at {pkg_info['path']}"
+            print(error_msg)
+            sys.exit(1)
+        
+        build_folder_path = build_folder_yaml
+        build_folder_path = build_folder_path.replace('${ARIEO_PACKAGE_INSTALL_FOLDER}', Path(packages_build_folder).resolve().as_posix())
+        build_folder_path = build_folder_path.replace('${ARIEO_PACKAGE_CATEGORY}', category)
+        build_folder_path = build_folder_path.replace('${ARIEO_PACKAGE_NAME}', package_name)
+        
+        # Resolve install_folder from ArieoPackage.yaml
+        install_folder_yaml = arieo_data.get('install_folder', '')
+        if not install_folder_yaml:
+            error_msg = f"✗ FATAL: 'install_folder' is not set in ArieoPackage.yaml for package '{package_name}' at {pkg_info['path']}"
+            print(error_msg)
+            sys.exit(1)
+        
+        install_folder_path = install_folder_yaml
+        install_folder_path = install_folder_path.replace('${ARIEO_PACKAGE_INSTALL_FOLDER}', Path(packages_install_folder).resolve().as_posix())
+        install_folder_path = install_folder_path.replace('${ARIEO_PACKAGE_CATEGORY}', category)
+        install_folder_path = install_folder_path.replace('${ARIEO_PACKAGE_NAME}', package_name)
         
         package_entry = {
             "build_index": idx,
@@ -765,11 +782,16 @@ def generate_package_resolve_file(install_order, packages_data, packages_src_fol
             "description": arieo_data.get('description', ''),
             "git_url": pkg_info.get('git_url', ''),
             "tag": pkg_info.get('tag', ''),
-            "source_folder": str(pkg_info['path'].resolve()),
+            "source_folder": pkg_info['path'].resolve().as_posix(),
+            "build_folder": build_folder_path,
             "install_folder": install_folder_path,
-            "build_folder": str((Path(packages_build_folder).resolve() / pkg_info['folder_name'])),
             "cmake_presets_file": cmake_presets_file,
             "environment_variables": [
+                {
+                    "type": "public",
+                    "name": 'ARIEO_' + pkg_var_name + '_PACKAGE_BUILD_FOLDER',
+                    "value": build_folder_path
+                },
                 {
                     "type": "public",
                     "name": 'ARIEO_' + pkg_var_name + '_PACKAGE_INSTALL_FOLDER',
@@ -839,7 +861,7 @@ def init_all_packages(manifest_file_path=None):
 
     packages_src_folder = expand_manifest_path(manifest.get('packages_src_folder', './_packages/src'))
     packages_install_folder = expand_manifest_path(manifest.get('packages_install_folder', './_packages/published'))
-    packages_build_folder = expand_manifest_path(manifest.get('packages_build_folder', './_build'))
+    packages_build_folder = expand_manifest_path(manifest.get('packages_build_folder', './_output'))
     packages_resolve_file = expand_manifest_path(manifest.get('packages_resolve_file', str(Path(packages_install_folder) / 'package.lock.json')))
     packages_cmake_list_file = expand_manifest_path(manifest.get('packages_cmake_list_file'))
     packages_raw = manifest.get('packages', {})
