@@ -22,7 +22,7 @@ cmake_minimum_required(VERSION 4.2.3)
 include(${CMAKE_CURRENT_LIST_DIR}/package/arieo_remote_package.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/package/arieo_local_package.cmake)
 
-function(arieo_package_manager)
+function(arieo_workspace)
     set(oneValueArgs
     )
     set(multiValueArgs 
@@ -37,6 +37,8 @@ function(arieo_package_manager)
         "${multiValueArgs}"
         ${ARGN}
     )
+
+    project(ArieoWorkspace)
 
     # Process environment variable settings
     foreach(env_var IN LISTS ARGUMENT_ENVIRONMENT_VARIABLES)
@@ -62,7 +64,7 @@ function(arieo_package_manager)
                 endif()
             endif()
             
-            message(STATUS "[arieo_package_manager] ${operation} ${var_name}=$ENV{${var_name}}")
+            message(STATUS "[arieo_workspace] ${operation} ${var_name}=$ENV{${var_name}}")
         endif()
     endforeach()
 
@@ -97,11 +99,11 @@ function(arieo_package_manager)
 
         # Process local packages after remote packages to allow local packages to depend on remote ones
         if(DEFINED ARGUMENT_ARIEO_PACKAGES_LOCAL)
-            foreach(local_pkg IN LISTS ARGUMENT_ARIEO_PACKAGES_LOCAL)
-                message(STATUS "Local package specified: ${local_pkg}")
+            foreach(local_pkg_path IN LISTS ARGUMENT_ARIEO_PACKAGES_LOCAL)
+                message(STATUS "Local package specified: ${local_pkg_path}")
 
                 arieo_add_local_package(
-                    SOURCE_DIR $ENV{ARIEO_PACKAGES_BUILD_OUTPUT_DIR}
+                    LOCAL_PACKAGE_PATH ${local_pkg_path}
                 )
             endforeach()
         endif()

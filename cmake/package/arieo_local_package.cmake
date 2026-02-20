@@ -1,27 +1,18 @@
-#[[
-    Arieo Local Package - CMake Module
-    
-    Usage:
-        arieo_add_local_package(
-            NAME            <package_name>
-            SOURCE_DIR      <source_directory>
-        )
-]]
-
-include_guard(GLOBAL)
-include(ExternalProject)
 
 function(arieo_add_local_package)
-    cmake_parse_arguments(ARG "" "SOURCE_DIR" "" ${ARGN})
+    cmake_parse_arguments(ARG "" "LOCAL_PACKAGE_PATH" "" ${ARGN})
 
     message(STATUS "Adding local package: 
-        SOURCE_DIR=${ARG_SOURCE_DIR}
+        PACKAGE_PATH=${LOCAL_PACKAGE_PATH}
     ")
 
     # check if there is a CMakeLists.txt in the source dir
-    if(NOT EXISTS "${ARG_SOURCE_DIR}/CMakeLists.txt")
-        message(FATAL_ERROR "Local package source directory ${ARG_SOURCE_DIR} does not contain a CMakeLists.txt file.")
+    if(NOT EXISTS "${ARG_LOCAL_PACKAGE_PATH}/CMakeLists.txt")
+        message(FATAL_ERROR "Local package source directory ${ARG_LOCAL_PACKAGE_PATH} does not contain a CMakeLists.txt file.")
     endif()
 
-    include ("${ARG_SOURCE_DIR}/CMakeLists.txt")
+    add_subdirectory(
+        ${ARG_LOCAL_PACKAGE_PATH}
+    )
+    # include ("${ARG_LOCAL_PACKAGE_PATH}/CMakeLists.txt")
 endfunction()

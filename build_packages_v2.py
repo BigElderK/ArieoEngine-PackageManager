@@ -14,6 +14,7 @@ def main():
     parser.add_argument("--preset", action="append", default=[], help="Build preset (can be specified multiple times)")
     parser.add_argument("--build_type", action="append", default=[], help="Build type (can be specified multiple times)")
     parser.add_argument("--package", action="append", default=[], help="Package to build (can be specified multiple times)")
+    parser.add_argument("--env", action="append", default=[], help="Environment variable to set (format: VAR=VALUE)")
 
     args = parser.parse_args()
 
@@ -25,6 +26,21 @@ def main():
 
     packages_str = ";".join(packages) if packages else ""
 
+
+    # Prepare environment variables with set, append, prepend support
+    import os
+    env = os.environ.copy()
+    for env_arg in args.env:
+        if '+=' in env_arg:
+            k, v = env_arg.split('+=', 1)
+            env[k] = env.get(k, '') + v
+        elif '^=' in env_arg:
+            k, v = env_arg.split('^=', 1)
+            env[k] = v + env.get(k, '')
+        elif '=' in env_arg:
+            k, v = env_arg.split('=', 1)
+            env[k] = v
+
     for preset in presets:
         for build_type in build_types:
             build_dir = base_build_dir / f"{preset}" / f"{build_type}"
@@ -32,17 +48,26 @@ def main():
 
             print(f"\n=== Configuring: preset={preset}, build_type={build_type}, packages={packages_str} ===")
 
-            # Configure
             configure_cmd = [
                 "cmake",
                 "-G", "Ninja",
                 "-S", str(cmake_dir),
-                "-B", str(build_dir),
-                f"-DCMAKE_BUILD_TYPE={build_type}",
-                f"-DARIEO_PRESET={preset}",
+                "-B", str(build_dir)
             ]
 
-            result = subprocess.run(configure_cmd)
+            # If preset is target from devenv, pass as -DCMAKE_CONFIGURE_PRESET, otherwise use --preset=xxx
+            if preset.startswith("devenv."):
+                preset = preset[len("devenv."):]
+                configure_cmd += [
+                    f"-DCMAKE_CONFIGURE_PRESET={preset}",
+                ]
+            else:
+                configure_cmd += [
+                    f"--preset={preset}",
+                    f"-DCMAKE_BUILD_TYPE={build_type}",
+                ]
+
+            result = subprocess.run(configure_cmd, env=env)
             if result.returncode != 0:
                 print(f"Configure failed for preset={preset}, build_type={build_type}")
                 return result.returncode
@@ -52,13 +77,14 @@ def main():
             # Build
             build_cmd = [
                 "cmake",
-                "--build", str(build_dir),
+                "--build", 
+                str(build_dir),
             ]
             # Add all packages as a single --target argument (space-separated)
             if packages:
                 build_cmd.extend(["--target"] + packages)
 
-            result = subprocess.run(build_cmd)
+            result = subprocess.run(build_cmd, env=env)
             if result.returncode != 0:
                 print(f"Build failed for preset={preset}, build_type={build_type}")
                 return result.returncode

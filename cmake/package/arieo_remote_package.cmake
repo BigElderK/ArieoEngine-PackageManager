@@ -33,22 +33,6 @@ function(arieo_add_remote_package)
     else()
         message(FATAL_ERROR "Could not extract package name from git repository URL: ${ARG_GIT_REPOSITORY}")
     endif()
-
-    message(STATUS "Adding remote package: 
-        GIT_REPOSITORY=${ARG_GIT_REPOSITORY}
-        GIT_TAG=${ARG_GIT_TAG}"
-    )
-    
-    # download source from git repository to source dir
-    FetchContent_Declare(
-        ${package_name}
-        GIT_REPOSITORY ${ARG_GIT_REPOSITORY}
-        GIT_TAG ${ARG_GIT_TAG}
-        GIT_SHALLOW    TRUE
-        SOURCE_DIR     $ENV{ARIEO_PACKAGES_REMOTE_SOURCE_DIR}/${package_name}
-    )
-    FetchContent_Populate(${package_name})
-
     message(STATUS "Adding remote package: 
         GIT_REPOSITORY=${ARG_GIT_REPOSITORY}
         GIT_TAG=${ARG_GIT_TAG}
@@ -57,15 +41,34 @@ function(arieo_add_remote_package)
         INSTALL_DIR=$ENV{ARIEO_PACKAGES_INSTALL_DIR}/${package_name}
     ")
 
-    # ExternalProject_Add(${ARG_NAME}
-    #     GIT_REPOSITORY      ${ARG_GIT_REPOSITORY}
-    #     GIT_TAG             ${ARG_GIT_TAG}
-    #     GIT_SHALLOW         ON
-    #     SOURCE_DIR          $ENV{ARIEO_PACKAGES_REMOTE_SOURCE_DIR}/${package_name}
-    #     BINARY_DIR          $ENV{ARIEO_PACKAGES_REMOTE_BINARY_DIR}/${package_name}
-    #     UPDATE_DISCONNECTED ON
-    #     INSTALL_COMMAND     ""
-    # )
+    # If SOURCE_DIR does not exist, call git clone to SOURCE_DIR, otherwise update it with git pull
+    set(source_dir $ENV{ARIEO_PACKAGES_REMOTE_SOURCE_DIR}/${package_name})
+    if(NOT EXISTS ${source_dir})
+        execute_process(
+            COMMAND git clone --branch ${ARG_GIT_TAG} --depth 1 ${ARG_GIT_REPOSITORY} ${source_dir}
+            RESULT_VARIABLE clone_result
+        )
+        if(NOT clone_result EQUAL 0)
+            message(FATAL_ERROR "git clone failed for ${ARG_GIT_REPOSITORY} to ${source_dir}")
+        endif()
+    else()
+        execute_process(
+            COMMAND git -C ${source_dir} pull
+            RESULT_VARIABLE pull_result
+        )
+        if(NOT pull_result EQUAL 0)
+            message(WARNING "git pull failed for ${source_dir}")
+        endif()
+    endif()
+
+    # check if there is a CMakeLists.txt in the source dir
+    if(NOT EXISTS "${source_dir}/CMakeLists.txt")
+        message(FATAL_ERROR "Local package source directory ${source_dir} does not contain a CMakeLists.txt file.")
+    endif()
+
+    add_subdirectory(
+        ${source_dir}
+    )
 endfunction()
 
 
