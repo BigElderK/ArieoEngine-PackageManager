@@ -45,7 +45,7 @@ def main():
 
     for preset in presets:
         for build_type in build_types:
-            build_dir = base_build_dir / f"{preset}" / f"{build_type}"
+            build_dir = base_build_dir / f"{stage}" / f"{preset}" / f"{build_type}"
             build_dir.mkdir(parents=True, exist_ok=True)
 
             print(f"\n=== Configuring: preset={preset}, build_type={build_type}, packages={packages_str}, stage={stage} ===")
@@ -81,9 +81,18 @@ def main():
             # Build
             build_cmd = [
                 "cmake",
-                "--build", 
-                str(build_dir),
+                "--build", str(build_dir),
+                "--config", build_type
             ]
+
+            # if stage == "INSTALL_BUILD_ENV_STAGE":
+            #     build_cmd += [
+            #     ]
+            # else:
+            #     build_cmd += [
+            #         f"--preset={preset}"
+            #     ]
+
             # Add all packages as a single --target argument (space-separated)
             if packages:
                 build_cmd.extend(["--target"] + packages)
