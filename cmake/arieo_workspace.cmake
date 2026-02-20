@@ -74,7 +74,6 @@ function(arieo_workspace)
     endif()
 endfunction()
 
-
 function(add_stages)
     set(oneValueArgs
     )
