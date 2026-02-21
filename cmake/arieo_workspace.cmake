@@ -1,11 +1,11 @@
 #[[
     Arieo Package Manager - CMake Module
     
-    Provides arieo_package_manager() function for managing packages with
+    Provides ARIEO_WORKSPACE() function for managing packages with
     environment variables and remote/local package sources.
     
     Usage:
-        arieo_package_manager(
+        ARIEO_WORKSPACE(
             ENVIRONMENT_VARIABLES
                 VAR_NAME=set:value
                 VAR_NAME=append:value
@@ -50,7 +50,7 @@ function(ARIEO_WORKSPACE)
         message(FATAL_ERROR "Environment variable ARIEO_PACKAGES_INSTALL_DIR is not defined.")
     endif()    
 
-    set(CMAKE_INSTALL_PREFIX ${ARIEO_PACKAGES_INSTALL_DIR}// CACHE PATH "Installation directory for Arieo packages" FORCE)
+    set(CMAKE_INSTALL_PREFIX $ENV{ARIEO_PACKAGES_INSTALL_DIR} CACHE PATH "Installation directory for Arieo packages" FORCE)
 
     project(ArieoWorkspace)
     if(DEFINED ARGUMENT_STAGES)
@@ -69,18 +69,18 @@ function(apply_environments environments)
             set(value "${CMAKE_MATCH_3}")
             
             if(operation STREQUAL "set")
-                set(ENV{${var_name}} "${value}")
+                set(ENV{${var_name}} "${value}" CACHE STRING "Environment variable ${var_name}")
             elseif(operation STREQUAL "append")
                 if(DEFINED ENV{${var_name}})
-                    set(ENV{${var_name}} "$ENV{${var_name}};${value}")
+                    set(ENV{${var_name}} "$ENV{${var_name}};${value}" CACHE STRING "Environment variable ${var_name}")
                 else()
-                    set(ENV{${var_name}} "${value}")
+                    set(ENV{${var_name}} "${value}" CACHE STRING "Environment variable ${var_name}")
                 endif()
             elseif(operation STREQUAL "prepend")
                 if(DEFINED ENV{${var_name}})
-                    set(ENV{${var_name}} "${value};$ENV{${var_name}}")
+                    set(ENV{${var_name}} "${value};$ENV{${var_name}}" CACHE STRING "Environment variable ${var_name}")
                 else()
-                    set(ENV{${var_name}} "${value}")
+                    set(ENV{${var_name}} "${value}" CACHE STRING "Environment variable ${var_name}")
                 endif()
             endif()
             
