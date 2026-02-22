@@ -158,7 +158,9 @@ function(add_stage_packages package_links)
     # Also build base_url→full_url map to detect tag conflicts later.
     # base_url = URL with @tag stripped (e.g. https://github.com/.../Repo.git)
     set(all_paths "")
+    set(seen_urls "")
     set(tag_conflict_errors "")
+    set(dup_url_errors "")
     foreach(package_link IN LISTS package_links)
         parsing_pakage_link_string("${package_link}" type url local_path)
 
@@ -193,6 +195,13 @@ function(add_stage_packages package_links)
             set_property(GLOBAL PROPERTY "ARIEO_PKG_BASEURL_${base_hash}" "${url}")
         endif()
 
+        # Detect duplicate URLs within this stage
+        if(url IN_LIST seen_urls)
+            string(APPEND dup_url_errors "  DUPLICATE URL in stage: ${url}\n")
+        else()
+            list(APPEND seen_urls "${url}")
+        endif()
+
         string(MD5 url_hash "${url}")
         set_property(GLOBAL PROPERTY "ARIEO_PKG_PATH_${url_hash}" "${local_path}")
         list(APPEND all_paths "${local_path}")
@@ -201,6 +210,10 @@ function(add_stage_packages package_links)
             sync_remote_package("${url}" "${local_path}")
         endif()
     endforeach()
+
+    if(dup_url_errors)
+        message(FATAL_ERROR "[arieo_workspace] Duplicate URL(s) in stage package list:\n${dup_url_errors}")
+    endif()
 
     if(tag_conflict_errors)
         message(FATAL_ERROR "[arieo_workspace] Tag conflict(s) in stage package list:\n${tag_conflict_errors}")
@@ -377,15 +390,18 @@ function (get_package_info cmake_dir out_depends_list)
     string(REGEX MATCH "ARIEO_PACKAGE[ \t\r\n]*\\(([^)]*)" _match "${_cmake_content}")
     set(_package_block "${CMAKE_MATCH_1}")
 
-    # Extract everything after the DEPENDS keyword
-    set(_depends_raw "")
-    if(_package_block MATCHES "DEPENDS[ \t\r\n]+(.*)")
-        set(_depends_raw "${CMAKE_MATCH_1}")
-        # Split into tokens by whitespace/newlines
+    # Extract everything after the DEPENDS keyword (multiline safe: no .* regex)
+    set(_depends_list "")
+    string(FIND "${_package_block}" "DEPENDS" _depends_pos)
+    if(NOT _depends_pos EQUAL -1)
+        string(LENGTH "DEPENDS" _depends_kw_len)
+        math(EXPR _after_depends "${_depends_pos} + ${_depends_kw_len}")
+        string(SUBSTRING "${_package_block}" ${_after_depends} -1 _depends_raw)
+        # Tokenize by any whitespace/newlines
         string(REGEX REPLACE "[ \t\r\n]+" ";" _depends_tokens "${_depends_raw}")
         foreach(_token IN LISTS _depends_tokens)
             string(STRIP "${_token}" _token)
-            # Stop when we hit another keyword
+            # Stop when we hit another known keyword
             if(_token MATCHES "^(CATEGORY|COMPONENTS|URL)$")
                 break()
             endif()
